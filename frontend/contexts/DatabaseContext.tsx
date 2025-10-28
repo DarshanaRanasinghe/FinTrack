@@ -3,6 +3,7 @@ import * as SQLite from 'expo-sqlite';
 import axios from 'axios';
 import { useAuth } from './AuthContext';
 import NetInfo from '@react-native-community/netinfo';
+import { isValidDateString } from '@/utils/dateUtils';
 
 const API_BASE_URL = 'http://192.168.1.5:3000/api';
 
@@ -121,27 +122,37 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addTransaction = async (transaction: any): Promise<number> => {
-    if (!db) throw new Error('Database not initialized');
-    if (!user) throw new Error('User not authenticated');
-    
-    try {
-      const result = await db.runAsync(
-        'INSERT INTO transactions (amount, description, type, category, transaction_date, user_id, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [transaction.amount, transaction.desc, transaction.type, transaction.category, transaction.date, user.id, 'pending']
-      );
-      
-      // Add to sync queue
-      await db.runAsync(
-        'INSERT INTO sync_queue (table_name, record_id, operation, data) VALUES (?, ?, ?, ?)',
-        ['transactions', result.lastInsertRowId, 'create', JSON.stringify(transaction)]
-      );
-      
-      return result.lastInsertRowId;
-    } catch (error) {
-      console.error('Error adding transaction:', error);
-      throw error;
+  if (!db) throw new Error('Database not initialized');
+  if (!user) throw new Error('User not authenticated');
+  
+  try {
+    // Validate and format date
+    let transactionDate = transaction.date;
+    if (!isValidDateString(transactionDate)) {
+      // Use current date if invalid
+      transactionDate = new Date().toISOString().split('T')[0];
     }
-  };
+    
+    const result = await db.runAsync(
+      'INSERT INTO transactions (amount, description, type, category, transaction_date, user_id, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [transaction.amount, transaction.desc, transaction.type, transaction.category, transactionDate, user.id, 'pending']
+    );
+    
+    // Add to sync queue
+    await db.runAsync(
+      'INSERT INTO sync_queue (table_name, record_id, operation, data) VALUES (?, ?, ?, ?)',
+      ['transactions', result.lastInsertRowId, 'create', JSON.stringify({
+        ...transaction,
+        date: transactionDate
+      })]
+    );
+    
+    return result.lastInsertRowId;
+  } catch (error) {
+    console.error('Error adding transaction:', error);
+    throw error;
+  }
+};
 
   const updateTransaction = async (id: number, transaction: any): Promise<void> => {
     if (!db) throw new Error('Database not initialized');

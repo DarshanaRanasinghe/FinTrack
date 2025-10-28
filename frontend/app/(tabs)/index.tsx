@@ -17,6 +17,7 @@ import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useDatabase } from "../../contexts/DatabaseContext";
 import { format } from "date-fns";
+import { safeFormatDate } from "@/utils/dateUtils";
 
 export default function DashboardScreen() {
   const { user, token } = useAuth();
@@ -234,8 +235,8 @@ export default function DashboardScreen() {
                     {transaction.description || transaction.desc}
                   </Text>
                   <Text style={styles.transactionDate}>
-                    {format(new Date(transaction.transaction_date || transaction.date), "MMM d")}
-                  </Text>
+                    {safeFormatDate(transaction.transaction_date || transaction.date, "MMM d")}
+                </Text>
                 </View>
                 <Text 
                   style={[

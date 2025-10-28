@@ -20,7 +20,7 @@ import {
   ActivityIndicator,
 } from "react-native-paper";
 import { useDatabase } from "../../contexts/DatabaseContext";
-import { format, parseISO } from "date-fns";
+import { safeFormatDate, safeParseDate, isValidDateString } from "../../utils/dateUtils";
 
 export default function TransactionsScreen() {
   const { 
@@ -44,7 +44,7 @@ export default function TransactionsScreen() {
     desc: "",
     type: "expense",
     category: "",
-    date: format(new Date(), "yyyy-MM-dd"),
+    date: new Date().toISOString().split('T')[0], // Default to today in YYYY-MM-DD format
   });
 
   const categories = {
@@ -58,6 +58,7 @@ export default function TransactionsScreen() {
       setTransactions(data);
     } catch (error) {
       console.error("Error loading transactions:", error);
+      setTransactions([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -76,7 +77,7 @@ export default function TransactionsScreen() {
       desc: "",
       type: "expense",
       category: "",
-      date: format(new Date(), "yyyy-MM-dd"),
+      date: new Date().toISOString().split('T')[0],
     });
     setModalVisible(true);
   };
@@ -84,11 +85,11 @@ export default function TransactionsScreen() {
   const handleEditTransaction = (transaction: any) => {
     setEditingTransaction(transaction);
     setFormData({
-      amount: transaction.amount.toString(),
-      desc: transaction.desc,
-      type: transaction.type,
-      category: transaction.category,
-      date: transaction.date,
+      amount: transaction.amount?.toString() || "",
+      desc: transaction.desc || transaction.description || "",
+      type: transaction.type || "expense",
+      category: transaction.category || "",
+      date: transaction.transaction_date || transaction.date || new Date().toISOString().split('T')[0],
     });
     setModalVisible(true);
     setMenuVisible(null);
@@ -101,10 +102,25 @@ export default function TransactionsScreen() {
       return;
     }
 
+    // Validate date format
+    if (!isValidDateString(formData.date)) {
+      setSnackbarMessage("Please enter a valid date in YYYY-MM-DD format");
+      setSnackbarVisible(true);
+      return;
+    }
+
+    // Validate amount
+    const amount = parseFloat(formData.amount);
+    if (isNaN(amount) || amount <= 0) {
+      setSnackbarMessage("Please enter a valid amount");
+      setSnackbarVisible(true);
+      return;
+    }
+
     try {
       const transactionData = {
         ...formData,
-        amount: parseFloat(formData.amount),
+        amount: amount,
       };
 
       if (editingTransaction) {
@@ -143,12 +159,21 @@ export default function TransactionsScreen() {
     loadTransactions();
   }, []);
 
+  // Group transactions by date safely
   const groupedTransactions = transactions.reduce((groups: any, transaction) => {
-    const date = transaction.date;
-    if (!groups[date]) {
-      groups[date] = [];
+    const date = transaction.transaction_date || transaction.date;
+    if (date && isValidDateString(date)) {
+      if (!groups[date]) {
+        groups[date] = [];
+      }
+      groups[date].push(transaction);
+    } else {
+      // Handle transactions with invalid dates
+      if (!groups['Invalid Date']) {
+        groups['Invalid Date'] = [];
+      }
+      groups['Invalid Date'].push(transaction);
     }
-    groups[date].push(transaction);
     return groups;
   }, {});
 
@@ -170,35 +195,41 @@ export default function TransactionsScreen() {
       >
         {Object.keys(groupedTransactions).length > 0 ? (
           Object.entries(groupedTransactions)
-            .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
+            .sort(([a], [b]) => {
+              if (a === 'Invalid Date') return 1;
+              if (b === 'Invalid Date') return -1;
+              return new Date(b).getTime() - new Date(a).getTime();
+            })
             .map(([date, dayTransactions]: [string, any]) => (
               <Card key={date} style={styles.dayCard}>
                 <Card.Content>
                   <Title style={styles.dateTitle}>
-                    {format(parseISO(date), "EEEE, MMMM d, yyyy")}
+                    {date === 'Invalid Date' 
+                      ? 'Invalid Date' 
+                      : safeFormatDate(date, "EEEE, MMMM d, yyyy")
+                    }
                   </Title>
                   {(dayTransactions as any[]).map((transaction) => (
                     <View key={transaction.id} style={styles.transactionItem}>
                       <View style={styles.transactionInfo}>
                         <Text style={styles.transactionDescription}>
-                          {transaction.desc}
+                          {transaction.desc || transaction.description}
                         </Text>
                         <Text style={styles.transactionCategory}>
                           {transaction.category}
                         </Text>
                       </View>
                       <View style={styles.transactionAmountContainer}>
-                        // In the transactions list rendering, update the amount display:
                         <Text
-                            style={[
-                                styles.transactionAmount,
-                                transaction.type === "income"
-                                ? styles.incomeText
-                                : styles.expenseText,
-                            ]}
-                            >
-                            {transaction.type === "income" ? "+" : "-"}$
-                            {(transaction.amount || 0).toFixed(2)}
+                          style={[
+                            styles.transactionAmount,
+                            transaction.type === "income"
+                              ? styles.incomeText
+                              : styles.expenseText,
+                          ]}
+                        >
+                          {transaction.type === "income" ? "+" : "-"}$
+                          {(transaction.amount || 0).toFixed(2)}
                         </Text>
                         <Menu
                           visible={menuVisible === transaction.id}
@@ -279,6 +310,7 @@ export default function TransactionsScreen() {
                 mode="outlined"
                 style={styles.input}
                 keyboardType="numeric"
+                placeholder="0.00"
               />
 
               <TextInput
@@ -287,6 +319,7 @@ export default function TransactionsScreen() {
                 onChangeText={(text) => setFormData({ ...formData, desc: text })}
                 mode="outlined"
                 style={styles.input}
+                placeholder="Enter description"
               />
 
               <TextInput
@@ -295,16 +328,17 @@ export default function TransactionsScreen() {
                 onChangeText={(text) => setFormData({ ...formData, category: text })}
                 mode="outlined"
                 style={styles.input}
-                list="categoryList"
+                placeholder="e.g., Food, Salary"
               />
 
               <TextInput
-                label="Date"
+                label="Date (YYYY-MM-DD)"
                 value={formData.date}
                 onChangeText={(text) => setFormData({ ...formData, date: text })}
                 mode="outlined"
                 style={styles.input}
-                placeholder="YYYY-MM-DD"
+                placeholder="2024-01-01"
+                error={!isValidDateString(formData.date)}
               />
 
               <View style={styles.modalButtons}>
@@ -319,6 +353,7 @@ export default function TransactionsScreen() {
                   mode="contained"
                   onPress={handleSaveTransaction}
                   style={styles.modalButton}
+                  disabled={!isValidDateString(formData.date)}
                 >
                   Save
                 </Button>
