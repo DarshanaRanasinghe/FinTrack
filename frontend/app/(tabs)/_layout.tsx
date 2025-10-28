@@ -3,29 +3,56 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "react-native-paper";
 
 export default function TabLayout() {
-  const theme = useTheme();
+  const theme = {
+    colors: {
+      primary: '#6366F1',
+      background: '#F8FAFC',
+      surface: '#FFFFFF',
+      text: '#1E293B',
+      textSecondary: '#64748B',
+    }
+  };
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#6366F1",
-        tabBarInactiveTintColor: "#6B7280",
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarStyle: {
-          backgroundColor: "white",
-          borderTopColor: "#E5E7EB",
+          backgroundColor: theme.colors.surface,
+          borderTopColor: '#E2E8F0',
+          borderTopWidth: 1,
+          height: 60,
+          paddingBottom: 8,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '500',
         },
         headerStyle: {
-          backgroundColor: "#6366F1",
+          backgroundColor: theme.colors.primary,
+          elevation: 0,
+          shadowOpacity: 0,
         },
-        headerTintColor: "white",
+        headerTintColor: 'white',
+        headerTitleStyle: {
+          fontWeight: '600',
+          fontSize: 18,
+        },
+        headerShadowVisible: false,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ size, color }) => (
-            <Ionicons name="home" size={size} color={color} />
+          tabBarIcon: ({ size, color, focused }) => (
+            <Ionicons 
+              name={focused ? "home" : "home-outline"} 
+              size={size} 
+              color={color} 
+            />
           ),
         }}
       />
@@ -33,8 +60,12 @@ export default function TabLayout() {
         name="transactions"
         options={{
           title: "Transactions",
-          tabBarIcon: ({ size, color }) => (
-            <Ionicons name="swap-horizontal" size={size} color={color} />
+          tabBarIcon: ({ size, color, focused }) => (
+            <Ionicons 
+              name={focused ? "swap-horizontal" : "swap-horizontal-outline"} 
+              size={size} 
+              color={color} 
+            />
           ),
         }}
       />
@@ -42,8 +73,12 @@ export default function TabLayout() {
         name="goals"
         options={{
           title: "Goals",
-          tabBarIcon: ({ size, color }) => (
-            <Ionicons name="flag" size={size} color={color} />
+          tabBarIcon: ({ size, color, focused }) => (
+            <Ionicons 
+              name={focused ? "flag" : "flag-outline"} 
+              size={size} 
+              color={color} 
+            />
           ),
         }}
       />
@@ -51,8 +86,12 @@ export default function TabLayout() {
         name="reports"
         options={{
           title: "Reports",
-          tabBarIcon: ({ size, color }) => (
-            <Ionicons name="bar-chart" size={size} color={color} />
+          tabBarIcon: ({ size, color, focused }) => (
+            <Ionicons 
+              name={focused ? "bar-chart" : "bar-chart-outline"} 
+              size={size} 
+              color={color} 
+            />
           ),
         }}
       />
@@ -60,8 +99,12 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ size, color }) => (
-            <Ionicons name="person" size={size} color={color} />
+          tabBarIcon: ({ size, color, focused }) => (
+            <Ionicons 
+              name={focused ? "person" : "person-outline"} 
+              size={size} 
+              color={color} 
+            />
           ),
         }}
       />

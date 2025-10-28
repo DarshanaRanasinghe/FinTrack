@@ -99,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       delete axios.defaults.headers.common['Authorization'];
       
-      router.replace('/');
+      router.replace('/register');
     } catch (error) {
       console.error('Error during logout:', error);
     }
