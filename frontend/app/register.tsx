@@ -12,22 +12,25 @@ import {
   Button,
   Card,
   Title,
-  Paragraph,
   Snackbar,
 } from "react-native-paper";
 import { Link, router } from "expo-router";
 import { useAuth } from "../contexts/AuthContext";
 
-export default function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+export default function RegisterScreen() {
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    password: "",
+    dateOfBirth: "",
+  });
   const [loading, setLoading] = useState(false);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
-  const { login } = useAuth();
+  const { register } = useAuth();
 
-  const handleLogin = async () => {
-    if (!email || !password) {
+  const handleRegister = async () => {
+    if (!formData.name || !formData.email || !formData.password || !formData.dateOfBirth) {
       setSnackbarMessage("Please fill in all fields");
       setSnackbarVisible(true);
       return;
@@ -35,10 +38,14 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      await login(email, password);
-      router.replace("/(tabs)");
+      await register(formData);
+      setSnackbarMessage("Registration successful! Please login.");
+      setSnackbarVisible(true);
+      setTimeout(() => {
+        router.replace("/");
+      }, 2000);
     } catch (error: any) {
-      setSnackbarMessage(error.message || "Login failed");
+      setSnackbarMessage(error.message || "Registration failed");
       setSnackbarVisible(true);
     } finally {
       setLoading(false);
@@ -53,15 +60,20 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <Card style={styles.card}>
           <Card.Content>
-            <Title style={styles.title}>FinTrack</Title>
-            <Paragraph style={styles.subtitle}>
-              Track your finances seamlessly
-            </Paragraph>
+            <Title style={styles.title}>Create Account</Title>
+
+            <TextInput
+              label="Full Name"
+              value={formData.name}
+              onChangeText={(text) => setFormData({ ...formData, name: text })}
+              mode="outlined"
+              style={styles.input}
+            />
 
             <TextInput
               label="Email"
-              value={email}
-              onChangeText={setEmail}
+              value={formData.email}
+              onChangeText={(text) => setFormData({ ...formData, email: text })}
               mode="outlined"
               style={styles.input}
               keyboardType="email-address"
@@ -70,29 +82,38 @@ export default function LoginScreen() {
 
             <TextInput
               label="Password"
-              value={password}
-              onChangeText={setPassword}
+              value={formData.password}
+              onChangeText={(text) => setFormData({ ...formData, password: text })}
               mode="outlined"
               style={styles.input}
               secureTextEntry
             />
 
+            <TextInput
+              label="Date of Birth (YYYY-MM-DD)"
+              value={formData.dateOfBirth}
+              onChangeText={(text) => setFormData({ ...formData, dateOfBirth: text })}
+              mode="outlined"
+              style={styles.input}
+              placeholder="2000-01-01"
+            />
+
             <Button
               mode="contained"
-              onPress={handleLogin}
+              onPress={handleRegister}
               loading={loading}
               disabled={loading}
               style={styles.button}
               labelStyle={styles.buttonLabel}
             >
-              Login
+              Register
             </Button>
 
-            <View style={styles.registerContainer}>
-              <Text>Don't have an account? </Text>
-              <Link href="/register" asChild>
+            <View style={styles.loginContainer}>
+              <Text>Already have an account? </Text>
+              <Link href="/" asChild>
                 <Button mode="text" compact>
-                  Register
+                  Login
                 </Button>
               </Link>
             </View>
@@ -127,16 +148,11 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "bold",
     textAlign: "center",
     color: "#6366F1",
-    marginBottom: 8,
-  },
-  subtitle: {
-    textAlign: "center",
-    marginBottom: 32,
-    color: "#6B7280",
+    marginBottom: 24,
   },
   input: {
     marginBottom: 16,
@@ -150,7 +166,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
   },
-  registerContainer: {
+  loginContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
