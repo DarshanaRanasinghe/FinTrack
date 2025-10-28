@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import * as SecureStore from 'expo-secure-store';
-import axios from 'axios';
-import { router } from 'expo-router';
+import React, { createContext, useContext, useState, useEffect } from "react";
+import * as SecureStore from "expo-secure-store";
+import axios from "axios";
+import { router } from "expo-router";
 
-const API_BASE_URL = 'http://192.168.1.5:3000/api';
+const API_BASE_URL = "http://192.168.1.3:3000/api";
 
 interface User {
   id: number;
@@ -36,18 +36,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loadStoredAuth = async () => {
     try {
-      const storedToken = await SecureStore.getItemAsync('authToken');
-      const storedUser = await SecureStore.getItemAsync('user');
-      
+      const storedToken = await SecureStore.getItemAsync("authToken");
+      const storedUser = await SecureStore.getItemAsync("user");
+
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
-        
+
         // Set default authorization header
-        axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+        axios.defaults.headers.common[
+          "Authorization"
+        ] = `Bearer ${storedToken}`;
       }
     } catch (error) {
-      console.error('Error loading stored auth:', error);
+      console.error("Error loading stored auth:", error);
     } finally {
       setLoading(false);
     }
@@ -61,20 +63,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       const { data } = response.data;
-      
-      await SecureStore.setItemAsync('authToken', data.token);
-      await SecureStore.setItemAsync('user', JSON.stringify(data.user));
-      
+
+      await SecureStore.setItemAsync("authToken", data.token);
+      await SecureStore.setItemAsync("user", JSON.stringify(data.user));
+
       setToken(data.token);
       setUser(data.user);
-      
+
       // Set default authorization header
-      axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
+      axios.defaults.headers.common["Authorization"] = `Bearer ${data.token}`;
     } catch (error: any) {
       if (error.response?.data?.message) {
         throw new Error(error.response.data.message);
       }
-      throw new Error('Login failed');
+      throw new Error("Login failed");
     }
   };
 
@@ -85,28 +87,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error.response?.data?.message) {
         throw new Error(error.response.data.message);
       }
-      throw new Error('Registration failed');
+      throw new Error("Registration failed");
     }
   };
 
   const logout = async () => {
     try {
-      await SecureStore.deleteItemAsync('authToken');
-      await SecureStore.deleteItemAsync('user');
-      
+      await SecureStore.deleteItemAsync("authToken");
+      await SecureStore.deleteItemAsync("user");
+
       setToken(null);
       setUser(null);
-      
-      delete axios.defaults.headers.common['Authorization'];
-      
-      router.replace('/register');
+
+      delete axios.defaults.headers.common["Authorization"];
+
+      router.replace("/register");
     } catch (error) {
-      console.error('Error during logout:', error);
+      console.error("Error during logout:", error);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, loading }}>
+    <AuthContext.Provider
+      value={{ user, token, login, register, logout, loading }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -115,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 }

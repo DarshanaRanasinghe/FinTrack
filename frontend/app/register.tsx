@@ -25,7 +25,7 @@ export default function RegisterScreen() {
     name: "",
     email: "",
     password: "",
-    dateOfBirth: "",
+    date_of_birth: "",
   });
   const [loading, setLoading] = useState(false);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -33,7 +33,7 @@ export default function RegisterScreen() {
   const { register } = useAuth();
 
   const handleRegister = async () => {
-    if (!formData.name || !formData.email || !formData.password || !formData.dateOfBirth) {
+    if (!formData.name || !formData.email || !formData.password || !formData.date_of_birth) {
       setSnackbarMessage("Please fill in all fields");
       setSnackbarVisible(true);
       return;
@@ -118,8 +118,8 @@ export default function RegisterScreen() {
 
             <TextInput
               label="Date of Birth (YYYY-MM-DD)"
-              value={formData.dateOfBirth}
-              onChangeText={(text) => setFormData({ ...formData, dateOfBirth: text })}
+              value={formData.date_of_birth}
+              onChangeText={(text) => setFormData({ ...formData, date_of_birth: text })}
               mode="outlined"
               style={styles.input}
               placeholder="2000-01-01"
