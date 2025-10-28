@@ -21,14 +21,13 @@ import {
 } from "react-native-paper";
 import { useDatabase } from "../../contexts/DatabaseContext";
 import { safeFormatDate, safeParseDate, isValidDateString } from "../../utils/dateUtils";
-
 export default function TransactionsScreen() {
-  const { 
-    getTransactions, 
-    addTransaction, 
-    updateTransaction, 
+  const {
+    getTransactions,
+    addTransaction,
+    updateTransaction,
     deleteTransaction,
-    syncData 
+    syncData
   } = useDatabase();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +37,6 @@ export default function TransactionsScreen() {
   const [menuVisible, setMenuVisible] = useState<number | null>(null);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
-
   const [formData, setFormData] = useState({
     amount: "",
     desc: "",
@@ -46,12 +44,10 @@ export default function TransactionsScreen() {
     category: "",
     date: new Date().toISOString().split('T')[0], // Default to today in YYYY-MM-DD format
   });
-
   const categories = {
     income: ["Salary", "Freelance", "Investment", "Gift", "Other"],
     expense: ["Food", "Transport", "Entertainment", "Bills", "Shopping", "Healthcare", "Other"],
   };
-
   const loadTransactions = async () => {
     try {
       const data = await getTransactions();
@@ -64,12 +60,10 @@ export default function TransactionsScreen() {
       setRefreshing(false);
     }
   };
-
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadTransactions();
   };
-
   const handleAddTransaction = () => {
     setEditingTransaction(null);
     setFormData({
@@ -81,7 +75,6 @@ export default function TransactionsScreen() {
     });
     setModalVisible(true);
   };
-
   const handleEditTransaction = (transaction: any) => {
     setEditingTransaction(transaction);
     setFormData({
@@ -94,21 +87,18 @@ export default function TransactionsScreen() {
     setModalVisible(true);
     setMenuVisible(null);
   };
-
   const handleSaveTransaction = async () => {
     if (!formData.amount || !formData.desc || !formData.category || !formData.date) {
       setSnackbarMessage("Please fill in all fields");
       setSnackbarVisible(true);
       return;
     }
-
     // Validate date format
     if (!isValidDateString(formData.date)) {
       setSnackbarMessage("Please enter a valid date in YYYY-MM-DD format");
       setSnackbarVisible(true);
       return;
     }
-
     // Validate amount
     const amount = parseFloat(formData.amount);
     if (isNaN(amount) || amount <= 0) {
@@ -116,13 +106,11 @@ export default function TransactionsScreen() {
       setSnackbarVisible(true);
       return;
     }
-
     try {
       const transactionData = {
         ...formData,
         amount: amount,
       };
-
       if (editingTransaction) {
         await updateTransaction(editingTransaction.id, transactionData);
         setSnackbarMessage("Transaction updated successfully!");
@@ -130,7 +118,6 @@ export default function TransactionsScreen() {
         await addTransaction(transactionData);
         setSnackbarMessage("Transaction added successfully!");
       }
-
       setModalVisible(false);
       setSnackbarVisible(true);
       await loadTransactions();
@@ -140,7 +127,6 @@ export default function TransactionsScreen() {
       setSnackbarVisible(true);
     }
   };
-
   const handleDeleteTransaction = async (id: number) => {
     try {
       await deleteTransaction(id);
@@ -154,11 +140,9 @@ export default function TransactionsScreen() {
       setSnackbarVisible(true);
     }
   };
-
   useEffect(() => {
     loadTransactions();
   }, []);
-
   // Group transactions by date safely
   const groupedTransactions = transactions.reduce((groups: any, transaction) => {
     const date = transaction.transaction_date || transaction.date;
@@ -176,7 +160,6 @@ export default function TransactionsScreen() {
     }
     return groups;
   }, {});
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -184,7 +167,6 @@ export default function TransactionsScreen() {
       </View>
     );
   }
-
   return (
     <View style={styles.container}>
       <ScrollView
@@ -204,8 +186,8 @@ export default function TransactionsScreen() {
               <Card key={date} style={styles.dayCard}>
                 <Card.Content>
                   <Title style={styles.dateTitle}>
-                    {date === 'Invalid Date' 
-                      ? 'Invalid Date' 
+                    {date === 'Invalid Date'
+                      ? 'Invalid Date'
                       : safeFormatDate(date, "EEEE, MMMM d, yyyy")
                     }
                   </Title>
@@ -273,96 +255,89 @@ export default function TransactionsScreen() {
           </Card>
         )}
       </ScrollView>
-
       <FAB
         icon="plus"
         style={styles.fab}
         onPress={handleAddTransaction}
         color="white"
       />
-
       <Portal>
         <Modal
           visible={modalVisible}
           onDismiss={() => setModalVisible(false)}
           contentContainerStyle={styles.modalContainer}
         >
-          <Card>
-            <Card.Content>
-              <Title style={styles.modalTitle}>
-                {editingTransaction ? "Edit Transaction" : "Add Transaction"}
-              </Title>
-
-              <SegmentedButtons
-                value={formData.type}
-                onValueChange={(value) => setFormData({ ...formData, type: value })}
-                buttons={[
-                  { value: "income", label: "Income", icon: "arrow-down" },
-                  { value: "expense", label: "Expense", icon: "arrow-up" },
-                ]}
-                style={styles.segmentedButtons}
-              />
-
-              <TextInput
-                label="Amount"
-                value={formData.amount}
-                onChangeText={(text) => setFormData({ ...formData, amount: text })}
-                mode="outlined"
-                style={styles.input}
-                keyboardType="numeric"
-                placeholder="0.00"
-              />
-
-              <TextInput
-                label="Description"
-                value={formData.desc}
-                onChangeText={(text) => setFormData({ ...formData, desc: text })}
-                mode="outlined"
-                style={styles.input}
-                placeholder="Enter description"
-              />
-
-              <TextInput
-                label="Category"
-                value={formData.category}
-                onChangeText={(text) => setFormData({ ...formData, category: text })}
-                mode="outlined"
-                style={styles.input}
-                placeholder="e.g., Food, Salary"
-              />
-
-              <TextInput
-                label="Date (YYYY-MM-DD)"
-                value={formData.date}
-                onChangeText={(text) => setFormData({ ...formData, date: text })}
-                mode="outlined"
-                style={styles.input}
-                placeholder="2024-01-01"
-                error={!isValidDateString(formData.date)}
-              />
-
-              <View style={styles.modalButtons}>
-                <Button
+          <ScrollView>
+            <Card style={styles.modalCard}>
+              <Card.Content>
+                <Title style={styles.modalTitle}>
+                  {editingTransaction ? "Edit Transaction" : "Add Transaction"}
+                </Title>
+                <SegmentedButtons
+                  value={formData.type}
+                  onValueChange={(value) => setFormData({ ...formData, type: value })}
+                  buttons={[
+                    { value: "income", label: "Income", icon: "arrow-down" },
+                    { value: "expense", label: "Expense", icon: "arrow-up" },
+                  ]}
+                  style={styles.segmentedButtons}
+                />
+                <TextInput
+                  label="Amount"
+                  value={formData.amount}
+                  onChangeText={(text) => setFormData({ ...formData, amount: text })}
                   mode="outlined"
-                  onPress={() => setModalVisible(false)}
-                  style={styles.modalButton}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveTransaction}
-                  style={styles.modalButton}
-                  disabled={!isValidDateString(formData.date)}
-                >
-                  Save
-                </Button>
-              </View>
-            </Card.Content>
-          </Card>
+                  style={styles.input}
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                />
+                <TextInput
+                  label="Description"
+                  value={formData.desc}
+                  onChangeText={(text) => setFormData({ ...formData, desc: text })}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="Enter description"
+                />
+                <TextInput
+                  label="Category"
+                  value={formData.category}
+                  onChangeText={(text) => setFormData({ ...formData, category: text })}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="e.g., Food, Salary"
+                />
+                <TextInput
+                  label="Date (YYYY-MM-DD)"
+                  value={formData.date}
+                  onChangeText={(text) => setFormData({ ...formData, date: text })}
+                  mode="outlined"
+                  style={styles.input}
+                  placeholder="2024-01-01"
+                  error={!isValidDateString(formData.date)}
+                />
+                <View style={styles.modalButtons}>
+                  <Button
+                    mode="outlined"
+                    onPress={() => setModalVisible(false)}
+                    style={styles.modalButton}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    mode="contained"
+                    onPress={handleSaveTransaction}
+                    style={styles.modalButton}
+                    disabled={!isValidDateString(formData.date)}
+                  >
+                    Save
+                  </Button>
+                </View>
+              </Card.Content>
+            </Card>
+          </ScrollView>
         </Modal>
       </Portal>
-
       <Snackbar
         visible={snackbarVisible}
         onDismiss={() => setSnackbarVisible(false)}
@@ -373,7 +348,6 @@ export default function TransactionsScreen() {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -459,7 +433,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#6366F1",
   },
   modalContainer: {
+    backgroundColor: 'white',
+    padding: 20,
     margin: 20,
+    borderRadius: 12,
+    elevation: 4,
+  },
+  modalCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
   },
   modalTitle: {
     textAlign: "center",

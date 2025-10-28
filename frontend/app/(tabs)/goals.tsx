@@ -20,15 +20,14 @@ import {
 } from "react-native-paper";
 import { useDatabase } from "../../contexts/DatabaseContext";
 import { format, parseISO } from "date-fns";
-
 export default function GoalsScreen() {
-  const { 
-    getGoals, 
-    addGoal, 
-    updateGoal, 
+  const {
+    getGoals,
+    addGoal,
+    updateGoal,
     deleteGoal,
     syncData,
-    getGoalProgress 
+    getGoalProgress
   } = useDatabase();
   const [goals, setGoals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,18 +37,15 @@ export default function GoalsScreen() {
   const [menuVisible, setMenuVisible] = useState<number | null>(null);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
-
   const [formData, setFormData] = useState({
     target_amount: "",
     target_month: new Date().getMonth() + 1,
     target_year: new Date().getFullYear(),
   });
-
   const months = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
-
   const loadGoals = async () => {
     try {
       const goalsData = await getGoals();
@@ -67,12 +63,10 @@ export default function GoalsScreen() {
       setRefreshing(false);
     }
   };
-
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadGoals();
   };
-
   const handleAddGoal = () => {
     setEditingGoal(null);
     setFormData({
@@ -82,7 +76,6 @@ export default function GoalsScreen() {
     });
     setModalVisible(true);
   };
-
   const handleEditGoal = (goal: any) => {
     setEditingGoal(goal);
     setFormData({
@@ -93,20 +86,17 @@ export default function GoalsScreen() {
     setModalVisible(true);
     setMenuVisible(null);
   };
-
   const handleSaveGoal = async () => {
     if (!formData.target_amount || !formData.target_month || !formData.target_year) {
       setSnackbarMessage("Please fill in all fields");
       setSnackbarVisible(true);
       return;
     }
-
     try {
       const goalData = {
         ...formData,
         target_amount: parseFloat(formData.target_amount),
       };
-
       if (editingGoal) {
         await updateGoal(editingGoal.id, goalData);
         setSnackbarMessage("Goal updated successfully!");
@@ -114,7 +104,6 @@ export default function GoalsScreen() {
         await addGoal(goalData);
         setSnackbarMessage("Goal set successfully!");
       }
-
       setModalVisible(false);
       setSnackbarVisible(true);
       await loadGoals();
@@ -124,7 +113,6 @@ export default function GoalsScreen() {
       setSnackbarVisible(true);
     }
   };
-
   const handleDeleteGoal = async (id: number) => {
     try {
       await deleteGoal(id);
@@ -138,11 +126,9 @@ export default function GoalsScreen() {
       setSnackbarVisible(true);
     }
   };
-
   useEffect(() => {
     loadGoals();
   }, []);
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -150,7 +136,6 @@ export default function GoalsScreen() {
       </View>
     );
   }
-
   return (
     <View style={styles.container}>
       <ScrollView
@@ -200,7 +185,6 @@ export default function GoalsScreen() {
                       />
                     </Menu>
                   </View>
-
                   <View style={styles.progressContainer}>
                     <View style={styles.progressBarBackground}>
                         <View
@@ -219,7 +203,6 @@ export default function GoalsScreen() {
                         ${(goal.progress || 0).toFixed(2)} / ${(goal.target_amount || 0).toFixed(2)}
                     </Text>
                     </View>
-
                   <View style={styles.goalStatus}>
                     <Text
                       style={[
@@ -255,74 +238,69 @@ export default function GoalsScreen() {
           </Card>
         )}
       </ScrollView>
-
       <FAB
         icon="plus"
         style={styles.fab}
         onPress={handleAddGoal}
         color="white"
       />
-
       <Portal>
         <Modal
           visible={modalVisible}
           onDismiss={() => setModalVisible(false)}
           contentContainerStyle={styles.modalContainer}
         >
-          <Card>
-            <Card.Content>
-              <Title style={styles.modalTitle}>
-                {editingGoal ? "Edit Goal" : "Set New Goal"}
-              </Title>
-
-              <TextInput
-                label="Target Amount"
-                value={formData.target_amount}
-                onChangeText={(text) => setFormData({ ...formData, target_amount: text })}
-                mode="outlined"
-                style={styles.input}
-                keyboardType="numeric"
-              />
-
-              <TextInput
-                label="Month (1-12)"
-                value={formData.target_month.toString()}
-                onChangeText={(text) => setFormData({ ...formData, target_month: parseInt(text) || 1 })}
-                mode="outlined"
-                style={styles.input}
-                keyboardType="numeric"
-              />
-
-              <TextInput
-                label="Year"
-                value={formData.target_year.toString()}
-                onChangeText={(text) => setFormData({ ...formData, target_year: parseInt(text) || new Date().getFullYear() })}
-                mode="outlined"
-                style={styles.input}
-                keyboardType="numeric"
-              />
-
-              <View style={styles.modalButtons}>
-                <Button
+          <ScrollView>
+            <Card style={styles.modalCard}>
+              <Card.Content>
+                <Title style={styles.modalTitle}>
+                  {editingGoal ? "Edit Goal" : "Set New Goal"}
+                </Title>
+                <TextInput
+                  label="Target Amount"
+                  value={formData.target_amount}
+                  onChangeText={(text) => setFormData({ ...formData, target_amount: text })}
                   mode="outlined"
-                  onPress={() => setModalVisible(false)}
-                  style={styles.modalButton}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveGoal}
-                  style={styles.modalButton}
-                >
-                  Save
-                </Button>
-              </View>
-            </Card.Content>
-          </Card>
+                  style={styles.input}
+                  keyboardType="numeric"
+                />
+                <TextInput
+                  label="Month (1-12)"
+                  value={formData.target_month.toString()}
+                  onChangeText={(text) => setFormData({ ...formData, target_month: parseInt(text) || 1 })}
+                  mode="outlined"
+                  style={styles.input}
+                  keyboardType="numeric"
+                />
+                <TextInput
+                  label="Year"
+                  value={formData.target_year.toString()}
+                  onChangeText={(text) => setFormData({ ...formData, target_year: parseInt(text) || new Date().getFullYear() })}
+                  mode="outlined"
+                  style={styles.input}
+                  keyboardType="numeric"
+                />
+                <View style={styles.modalButtons}>
+                  <Button
+                    mode="outlined"
+                    onPress={() => setModalVisible(false)}
+                    style={styles.modalButton}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    mode="contained"
+                    onPress={handleSaveGoal}
+                    style={styles.modalButton}
+                  >
+                    Save
+                  </Button>
+                </View>
+              </Card.Content>
+            </Card>
+          </ScrollView>
         </Modal>
       </Portal>
-
       <Snackbar
         visible={snackbarVisible}
         onDismiss={() => setSnackbarVisible(false)}
@@ -333,7 +311,6 @@ export default function GoalsScreen() {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -430,7 +407,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#6366F1",
   },
   modalContainer: {
+    backgroundColor: 'white',
+    padding: 20,
     margin: 20,
+    borderRadius: 12,
+    elevation: 4,
+  },
+  modalCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
   },
   modalTitle: {
     textAlign: "center",
