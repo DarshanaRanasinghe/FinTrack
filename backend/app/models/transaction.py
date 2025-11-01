@@ -1,3 +1,4 @@
+# backend/app/models/transaction.py
 from app.config.database import get_connection
 
 class Transaction:
@@ -7,15 +8,15 @@ class Transaction:
         cursor = conn.cursor()
         try:
             amount = transaction_data['amount']
-            description = transaction_data['description']
+            description = transaction_data['desc']
             type_ = transaction_data['type']
             category = transaction_data['category']
             user_id = transaction_data['user_id']
-            transaction_date = transaction_data['transaction_date']
-            
+            transaction_date = transaction_data['date']
+           
             cursor.execute("SELECT transactions_seq.NEXTVAL AS id FROM DUAL")
             next_id = cursor.fetchone()[0]
-            
+           
             cursor.execute("""
                 INSERT INTO transactions (id, amount, description, type, category, user_id, transaction_date)
                 VALUES (:id, :amount, :description, :type, :category, :user_id, TO_DATE(:transaction_date, 'YYYY-MM-DD'))
@@ -32,7 +33,6 @@ class Transaction:
             return next_id
         finally:
             cursor.close()
-
     @staticmethod
     async def get_all(user_id):
         conn = await get_connection()
@@ -58,7 +58,6 @@ class Transaction:
             } for row in rows]
         finally:
             cursor.close()
-
     @staticmethod
     async def get_by_id(id_, user_id):
         conn = await get_connection()
@@ -85,7 +84,6 @@ class Transaction:
             }
         finally:
             cursor.close()
-
     @staticmethod
     async def get_by_month(user_id, month, year):
         conn = await get_connection()
@@ -113,7 +111,6 @@ class Transaction:
             } for row in rows]
         finally:
             cursor.close()
-
     @staticmethod
     async def delete(id_, user_id):
         conn = await get_connection()
@@ -126,18 +123,17 @@ class Transaction:
             return cursor.rowcount > 0
         finally:
             cursor.close()
-
     @staticmethod
     async def update(id_, transaction_data, user_id):
         conn = await get_connection()
         cursor = conn.cursor()
         try:
             amount = transaction_data['amount']
-            description = transaction_data['description']
+            description = transaction_data['desc']
             type_ = transaction_data['type']
             category = transaction_data['category']
-            transaction_date = transaction_data['transaction_date']
-            
+            transaction_date = transaction_data['date']
+           
             cursor.execute("""
                 UPDATE transactions
                 SET amount = :amount, description = :description, type = :type, category = :category,
