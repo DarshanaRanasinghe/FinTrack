@@ -651,14 +651,16 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
 
     try {
-        // Prepare data for backend - map 'desc' to 'description' and 'date' to 'transaction_date'
+        // Prepare data for backend - ensure it matches the TransactionRequest model
         const backendData = {
-            amount: data.amount,
-            description: data.desc, // Map 'desc' to 'description'
+            amount: parseFloat(data.amount),
+            desc: data.desc || data.description, // Use 'desc' as expected by frontend
             type: data.type,
             category: data.category,
-            transaction_date: data.date, // Map 'date' to 'transaction_date'
+            date: data.date || data.transaction_date, // Use 'date' as expected by frontend
         };
+
+        console.log('Syncing transaction:', backendData);
 
         switch (operation.operation) {
             case "create":
@@ -666,7 +668,10 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
                     `${API_BASE_URL}/transactions`,
                     backendData,
                     {
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers: { 
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
                     }
                 );
                 await db.runAsync(
@@ -679,7 +684,10 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
                     `${API_BASE_URL}/transactions/${operation.record_id}`,
                     backendData,
                     {
-                        headers: { Authorization: `Bearer ${token}` },
+                        headers: { 
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
                     }
                 );
                 await db.runAsync(
@@ -693,8 +701,8 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
                 });
                 break;
         }
-    } catch (error) {
-        console.error("Error syncing transaction:", error);
+    } catch (error: any) {
+        console.error("Error syncing transaction:", error.response?.data || error.message);
         throw error;
     }
 };
@@ -703,47 +711,60 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
 
     try {
-      switch (operation.operation) {
-        case "create":
-          const createResponse = await axios.post(
-            `${API_BASE_URL}/goals`,
-            data,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-          await db.runAsync(
-            "UPDATE goals SET server_id = ?, sync_status = ? WHERE id = ?",
-            [createResponse.data.data.id, "synced", operation.record_id]
-          );
-          break;
-        case "update":
-          await axios.put(
-            `${API_BASE_URL}/goals/${operation.record_id}`,
-            data,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-          await db.runAsync("UPDATE goals SET sync_status = ? WHERE id = ?", [
-            "synced",
-            operation.record_id,
-          ]);
-          break;
-        case "delete":
-          await axios.delete(`${API_BASE_URL}/goals/${data.server_id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          break;
-      }
-    } catch (error) {
-      console.error("Error syncing goal:", error);
-      throw error;
-    }
-  };
+        const backendData = {
+            target_amount: parseFloat(data.target_amount),
+            target_month: parseInt(data.target_month),
+            target_year: parseInt(data.target_year),
+        };
 
+        console.log('Syncing goal:', backendData);
+
+        switch (operation.operation) {
+            case "create":
+                const createResponse = await axios.post(
+                    `${API_BASE_URL}/goals`,
+                    backendData,
+                    {
+                        headers: { 
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                    }
+                );
+                await db.runAsync(
+                    "UPDATE goals SET server_id = ?, sync_status = ? WHERE id = ?",
+                    [createResponse.data.data.id, "synced", operation.record_id]
+                );
+                break;
+            case "update":
+                await axios.put(
+                    `${API_BASE_URL}/goals/${operation.record_id}`,
+                    backendData,
+                    {
+                        headers: { 
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                    }
+                );
+                await db.runAsync("UPDATE goals SET sync_status = ? WHERE id = ?", [
+                    "synced",
+                    operation.record_id,
+                ]);
+                break;
+            case "delete":
+                await axios.delete(`${API_BASE_URL}/goals/${data.server_id}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                break;
+        }
+    } catch (error: any) {
+        console.error("Error syncing goal:", error.response?.data || error.message);
+        throw error;
+    }
+};
   // Also update the pullLatestData function to handle field mapping
-const pullLatestData = async () => {
+  const pullLatestData = async () => {
     if (!token || !user || !db) return;
 
     try {
@@ -755,6 +776,12 @@ const pullLatestData = async () => {
             }
         );
         const serverTransactions = transactionsResponse.data.data;
+
+        // Pull goals - THIS WAS MISSING!
+        const goalsResponse = await axios.get(`${API_BASE_URL}/goals`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        const serverGoals = goalsResponse.data.data; // ADD THIS LINE
 
         // Update local database with server data
         // Clear existing data that's synced
@@ -782,6 +809,7 @@ const pullLatestData = async () => {
             );
         }
 
+        // Insert goals - THIS PART WAS MISSING THE serverGoals VARIABLE
         for (const goal of serverGoals) {
             await db.runAsync(
                 `INSERT INTO goals 
