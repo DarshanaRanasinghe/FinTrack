@@ -51,7 +51,7 @@ def calculate_monthly_summary(transactions, goal):
         goal_progress = (analytics["totals"]["net"] / goal["target_amount"]) * 100 if goal["target_amount"] else 0
         goal_status = {
             "target": goal["target_amount"],
-            "progress": goal_progress,
+            "progress": analytics["totals"]["net"],
             "achieved": analytics["totals"]["net"] >= goal["target_amount"],
             "remaining": max(goal["target_amount"] - analytics["totals"]["net"], 0)
         }

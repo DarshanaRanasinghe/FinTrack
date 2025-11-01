@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext";
 import NetInfo from "@react-native-community/netinfo";
 import { isValidDateString } from "@/utils/dateUtils";
 
-const API_BASE_URL = "http://192.168.1.12:3000/api";
+const API_BASE_URL = "http://192.168.1.2:3000/api";
 
 interface DatabaseContextType {
   // Transactions
@@ -24,6 +24,9 @@ interface DatabaseContextType {
   // Reports
   getReports: (month: number, year: number) => Promise<any>;
   getYearlyReports: (year: number) => Promise<any>;
+  getCategoryBreakdownReport: (month: number, year: number) => Promise<any>;
+  getGoalProgressReport: (year: number) => Promise<any>;
+  getFinancialHealthReport: (year: number) => Promise<any>;
 
   // Dashboard
   getDashboardData: () => Promise<any>;
@@ -110,7 +113,6 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
   // Transaction methods
   const getTransactions = async (): Promise<any[]> => {
     if (!db) return [];
-
     try {
       const result = await db.getAllAsync(
         "SELECT * FROM transactions WHERE user_id = ? ORDER BY transaction_date DESC, date_created DESC",
@@ -243,7 +245,6 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
   // Goal methods
   const getGoals = async (): Promise<any[]> => {
     if (!db || !user) return [];
-
     try {
       const result = await db.getAllAsync(
         "SELECT * FROM goals WHERE user_id = ? ORDER BY target_year DESC, target_month DESC",
@@ -370,7 +371,6 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       const income = transactions
         .filter((t) => t.type === "income")
         .reduce((sum, t) => sum + t.amount, 0);
-
       const expenses = transactions
         .filter((t) => t.type === "expense")
         .reduce((sum, t) => sum + t.amount, 0);
@@ -476,7 +476,6 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       const net = income - expenses;
 
       const monthlyBreakdown: any = {};
-
       for (let month = 1; month <= 12; month++) {
         const monthTransactions = transactions.filter((t: any) => {
           const date = new Date(t.transaction_date);
@@ -528,6 +527,70 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // New Report Methods
+  const getCategoryBreakdownReport = async (month: number, year: number): Promise<any> => {
+    if (!token) throw new Error("Not authenticated");
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/report/category-breakdown?month=${month}&year=${year}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch category breakdown report');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching category breakdown report:", error);
+      throw error;
+    }
+  };
+
+  const getGoalProgressReport = async (year: number): Promise<any> => {
+    if (!token) throw new Error("Not authenticated");
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/report/goal-progress?year=${year}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch goal progress report');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching goal progress report:", error);
+      throw error;
+    }
+  };
+
+  const getFinancialHealthReport = async (year: number): Promise<any> => {
+    if (!token) throw new Error("Not authenticated");
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/report/financial-health?year=${year}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch financial health report');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching financial health report:", error);
+      throw error;
+    }
+  };
+
   // Dashboard data
   const getDashboardData = async (): Promise<any> => {
     if (!db || !user) {
@@ -559,7 +622,6 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       const monthlyIncome = monthlyTransactions
         .filter((t: any) => t.type === "income")
         .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
-
       const monthlyExpenses = monthlyTransactions
         .filter((t: any) => t.type === "expense")
         .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
@@ -618,7 +680,6 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       for (const operation of syncQueue) {
         try {
           const data = JSON.parse(operation.data);
-
           switch (operation.table_name) {
             case "transactions":
               await syncTransaction(operation, data);
@@ -825,6 +886,9 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     getGoalProgress,
     getReports,
     getYearlyReports,
+    getCategoryBreakdownReport,
+    getGoalProgressReport,
+    getFinancialHealthReport,
     getDashboardData,
     syncData,
     clearLocalData,
