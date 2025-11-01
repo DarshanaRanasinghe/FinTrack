@@ -10,44 +10,32 @@ db_config = {
     "dsn": f"{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '1521')}/{os.getenv('DB_SID', 'xe')}"
 }
 
-connection_pool = None
+connection = None
 
 async def init_database():
-    global connection_pool
+    global connection
     try:
-        # Create connection pool for better performance
-        connection_pool = oracledb.create_pool(
-            user=db_config["user"],
-            password=db_config["password"],
-            dsn=db_config["dsn"],
-            min=1,
-            max=10,
-            increment=1
-        )
+        connection = oracledb.connect(**db_config)
+        print("Connected to Oracle Database")
         
-        # Test connection
-        with connection_pool.acquire() as conn:
-            print("✅ Connected to Oracle Database")
-            
-            # Create sequences
-            await create_sequence_if_not_exists(conn, "USERS_SEQ")
-            await create_sequence_if_not_exists(conn, "TRANSACTIONS_SEQ")
-            await create_sequence_if_not_exists(conn, "GOALS_SEQ")
-            
-            # Check and create tables
-            await check_and_create_users_table(conn)
-            await check_and_create_transactions_table(conn)
-            await check_and_create_goals_table(conn)
+        # Create sequences
+        await create_sequence_if_not_exists("USERS_SEQ")
+        await create_sequence_if_not_exists("TRANSACTIONS_SEQ")
+        await create_sequence_if_not_exists("GOALS_SEQ")
         
-        print("✅ Database initialized successfully")
-        return connection_pool
+        # Check and create tables
+        await check_and_create_users_table()
+        await check_and_create_transactions_table()
+        await check_and_create_goals_table()
         
+        print("Database initialized successfully")
+        return connection
     except Exception as error:
-        print(f"❌ Database initialization error: {error}")
+        print(f"Database initialization error: {error}")
         raise error
 
-async def create_sequence_if_not_exists(conn, seq_name):
-    cursor = conn.cursor()
+async def create_sequence_if_not_exists(seq_name):
+    cursor = connection.cursor()
     try:
         cursor.execute(f"""
             BEGIN
@@ -59,22 +47,18 @@ async def create_sequence_if_not_exists(conn, seq_name):
                     END IF;
             END;
         """)
-        conn.commit()
-        print(f"✅ Sequence {seq_name} created or already exists")
-    except Exception as error:
-        print(f"❌ Error creating sequence {seq_name}: {error}")
-        raise error
+        connection.commit()
     finally:
         cursor.close()
 
-async def check_and_create_users_table(conn):
-    cursor = conn.cursor()
+async def check_and_create_users_table():
+    cursor = connection.cursor()
     try:
         cursor.execute("SELECT table_name FROM user_tables WHERE table_name = 'USERS'")
         table_exists = cursor.fetchone()
         
         if not table_exists:
-            await create_users_table(conn)
+            await create_users_table()
             return
         
         required_columns = [
@@ -88,20 +72,20 @@ async def check_and_create_users_table(conn):
         missing_columns = [col for col in required_columns if col not in existing_columns]
         
         if missing_columns:
-            print(f"⚠️ Missing columns in USERS table: {', '.join(missing_columns)}")
-            print("🔄 Dropping and recreating USERS table...")
+            print(f"Missing columns in USERS table: {', '.join(missing_columns)}")
+            print("Dropping and recreating USERS table...")
             cursor.execute('DROP TABLE users CASCADE CONSTRAINTS')
-            await create_users_table(conn)
+            await create_users_table()
         else:
-            print("✅ USERS table exists with all required columns")
+            print("USERS table exists with all required columns")
     except Exception as error:
-        print(f"❌ Error checking/creating users table: {error}")
+        print(f"Error checking/creating users table: {error}")
         raise error
     finally:
         cursor.close()
 
-async def create_users_table(conn):
-    cursor = conn.cursor()
+async def create_users_table():
+    cursor = connection.cursor()
     try:
         cursor.execute("""
             CREATE TABLE users (
@@ -115,22 +99,20 @@ async def create_users_table(conn):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        conn.commit()
-        print("✅ Created USERS table")
-    except Exception as error:
-        print(f"❌ Error creating users table: {error}")
-        raise error
+        connection.commit()
+        print("Created USERS table")
     finally:
         cursor.close()
 
-async def check_and_create_transactions_table(conn):
-    cursor = conn.cursor()
+# Similar functions for transactions and goals
+async def check_and_create_transactions_table():
+    cursor = connection.cursor()
     try:
         cursor.execute("SELECT table_name FROM user_tables WHERE table_name = 'TRANSACTIONS'")
         table_exists = cursor.fetchone()
         
         if not table_exists:
-            await create_transactions_table(conn)
+            await create_transactions_table()
             return
         
         required_columns = [
@@ -144,14 +126,13 @@ async def check_and_create_transactions_table(conn):
         missing_columns = [col for col in required_columns if col not in existing_columns]
         
         if missing_columns:
-            print(f"⚠️ Missing columns in TRANSACTIONS table: {', '.join(missing_columns)}")
-            print("🔄 Dropping and recreating TRANSACTIONS table...")
+            print(f"Missing columns in TRANSACTIONS table: {', '.join(missing_columns)}")
+            print("Dropping and recreating TRANSACTIONS table...")
             cursor.execute('DROP TABLE transactions CASCADE CONSTRAINTS')
-            await create_transactions_table(conn)
+            await create_transactions_table()
         else:
-            print("✅ TRANSACTIONS table exists with all required columns")
+            print("TRANSACTIONS table exists with all required columns")
             
-            # Check foreign key constraint
             cursor.execute("""
                 SELECT constraint_name
                 FROM user_constraints
@@ -161,29 +142,28 @@ async def check_and_create_transactions_table(conn):
             fk_exists = cursor.fetchone()
             
             if not fk_exists:
-                print("🔄 Adding foreign key constraint...")
+                print("Adding foreign key constraint...")
                 cursor.execute("""
                     ALTER TABLE transactions
                     ADD CONSTRAINT fk_user_transaction
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 """)
-                conn.commit()
-                print("✅ Foreign key constraint added")
+                connection.commit()
     except Exception as error:
-        print(f"❌ Error checking/creating transactions table: {error}")
+        print(f"Error checking/creating transactions table: {error}")
         raise error
     finally:
         cursor.close()
 
-async def create_transactions_table(conn):
-    cursor = conn.cursor()
+async def create_transactions_table():
+    cursor = connection.cursor()
     try:
         cursor.execute("""
             CREATE TABLE transactions (
                 id NUMBER PRIMARY KEY,
                 amount NUMBER NOT NULL,
                 description VARCHAR2(500) NOT NULL,
-                type VARCHAR2(10) NOT NULL CHECK (type IN ('income', 'expense')),
+                type VARCHAR2(10) NOT NULL,
                 category VARCHAR2(100) NOT NULL,
                 user_id NUMBER NOT NULL,
                 date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -191,69 +171,55 @@ async def create_transactions_table(conn):
                 CONSTRAINT fk_user_transaction FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """)
-        conn.commit()
-        print("✅ Created TRANSACTIONS table with foreign key constraint")
-    except Exception as error:
-        print(f"❌ Error creating transactions table: {error}")
-        raise error
+        connection.commit()
+        print("Created TRANSACTIONS table with foreign key constraint")
     finally:
         cursor.close()
 
-async def check_and_create_goals_table(conn):
-    cursor = conn.cursor()
+async def check_and_create_goals_table():
+    cursor = connection.cursor()
     try:
         cursor.execute("SELECT table_name FROM user_tables WHERE table_name = 'GOALS'")
         table_exists = cursor.fetchone()
         
         if not table_exists:
-            await create_goals_table(conn)
+            await create_goals_table()
             return
         
-        print("✅ GOALS table already exists")
+        print("GOALS table already exists")
     except Exception as error:
-        print(f"❌ Error checking/creating goals table: {error}")
+        print(f"Error checking/creating goals table: {error}")
         raise error
     finally:
         cursor.close()
 
-async def create_goals_table(conn):
-    cursor = conn.cursor()
+async def create_goals_table():
+    cursor = connection.cursor()
     try:
         cursor.execute("""
             CREATE TABLE goals (
                 id NUMBER PRIMARY KEY,
                 user_id NUMBER NOT NULL,
                 target_amount NUMBER NOT NULL,
-                target_month NUMBER NOT NULL CHECK (target_month BETWEEN 1 AND 12),
+                target_month NUMBER NOT NULL,
                 target_year NUMBER NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 CONSTRAINT fk_user_goal FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 CONSTRAINT unique_user_month_goal UNIQUE (user_id, target_month, target_year)
             )
         """)
-        conn.commit()
-        print("✅ Created GOALS table")
-    except Exception as error:
-        print(f"❌ Error creating goals table: {error}")
-        raise error
+        connection.commit()
+        print("Created GOALS table")
     finally:
         cursor.close()
 
-def get_connection():
-    """Get a connection from the pool - synchronous for model methods"""
-    if not connection_pool:
-        raise Exception("Database not initialized. Call init_database first.")
-    return connection_pool.acquire()
-
-def release_connection(conn):
-    """Release connection back to pool"""
-    if connection_pool and conn:
-        connection_pool.release(conn)
+async def get_connection():
+    global connection
+    if not connection:
+        connection = oracledb.connect(**db_config)
+    return connection
 
 async def close_connection():
-    """Close the connection pool"""
-    global connection_pool
-    if connection_pool:
-        connection_pool.close()
-        connection_pool = None
-        print("✅ Database connection pool closed")
+    if connection:
+        connection.close()
+        print("Database connection closed")

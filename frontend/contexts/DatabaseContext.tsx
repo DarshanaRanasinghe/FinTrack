@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext";
 import NetInfo from "@react-native-community/netinfo";
 import { isValidDateString } from "@/utils/dateUtils";
 
-const API_BASE_URL = "http://192.168.1.12:3000/api";
+const API_BASE_URL = "http://192.168.1.3:3000/api";
 
 interface DatabaseContextType {
   // Transactions
@@ -102,9 +102,8 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       `);
 
       setDb(database);
-      console.log("✅ Local database initialized");
     } catch (error) {
-      console.error("❌ Error initializing database:", error);
+      console.error("Error initializing database:", error);
     }
   };
 
@@ -119,7 +118,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       );
       return result as any[];
     } catch (error) {
-      console.error("❌ Error getting transactions:", error);
+      console.error("Error getting transactions:", error);
       return [];
     }
   };
@@ -157,10 +156,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           result.lastInsertRowId,
           "create",
           JSON.stringify({
-            amount: transaction.amount,
-            desc: transaction.desc,
-            type: transaction.type,
-            category: transaction.category,
+            ...transaction,
             date: transactionDate,
           }),
         ]
@@ -168,7 +164,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
       return result.lastInsertRowId;
     } catch (error) {
-      console.error("❌ Error adding transaction:", error);
+      console.error("Error adding transaction:", error);
       throw error;
     }
   };
@@ -201,7 +197,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         ["transactions", id, "update", JSON.stringify(transaction)]
       );
     } catch (error) {
-      console.error("❌ Error updating transaction:", error);
+      console.error("Error updating transaction:", error);
       throw error;
     }
   };
@@ -239,7 +235,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         );
       }
     } catch (error) {
-      console.error("❌ Error deleting transaction:", error);
+      console.error("Error deleting transaction:", error);
       throw error;
     }
   };
@@ -255,7 +251,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       );
       return result as any[];
     } catch (error) {
-      console.error("❌ Error getting goals:", error);
+      console.error("Error getting goals:", error);
       return [];
     }
   };
@@ -284,7 +280,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
       return result.lastInsertRowId;
     } catch (error) {
-      console.error("❌ Error adding goal:", error);
+      console.error("Error adding goal:", error);
       throw error;
     }
   };
@@ -312,7 +308,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         ["goals", id, "update", JSON.stringify(goal)]
       );
     } catch (error) {
-      console.error("❌ Error updating goal:", error);
+      console.error("Error updating goal:", error);
       throw error;
     }
   };
@@ -350,7 +346,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         );
       }
     } catch (error) {
-      console.error("❌ Error deleting goal:", error);
+      console.error("Error deleting goal:", error);
       throw error;
     }
   };
@@ -363,14 +359,12 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // Calculate net income for the month (income - expenses)
-      const monthStr = month.toString().padStart(2, "0");
-      const yearStr = year.toString();
-      
       const transactions = (await db.getAllAsync(
         `SELECT * FROM transactions 
          WHERE user_id = ? 
-         AND substr(transaction_date, 1, 7) = ?`,
-        [user.id, `${yearStr}-${monthStr}`]
+         AND strftime('%m', transaction_date) = ? 
+         AND strftime('%Y', transaction_date) = ?`,
+        [user.id, month.toString().padStart(2, "0"), year.toString()]
       )) as any[];
 
       const income = transactions
@@ -383,7 +377,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
       return Math.max(0, income - expenses);
     } catch (error) {
-      console.error("❌ Error calculating goal progress:", error);
+      console.error("Error calculating goal progress:", error);
       return 0;
     }
   };
@@ -393,12 +387,12 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     if (!db || !user) return {};
 
     try {
-      const monthStr = month.toString().padStart(2, "0");
       const transactions = (await db.getAllAsync(
         `SELECT * FROM transactions 
          WHERE user_id = ? 
-         AND substr(transaction_date, 1, 7) = ?`,
-        [user.id, `${year}-${monthStr}`]
+         AND strftime('%m', transaction_date) = ? 
+         AND strftime('%Y', transaction_date) = ?`,
+        [user.id, month.toString().padStart(2, "0"), year.toString()]
       )) as any[];
 
       const goal = (await db.getFirstAsync(
@@ -454,7 +448,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         },
       };
     } catch (error) {
-      console.error("❌ Error generating report:", error);
+      console.error("Error generating report:", error);
       return {};
     }
   };
@@ -464,7 +458,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const transactions = (await db.getAllAsync(
-        'SELECT * FROM transactions WHERE user_id = ? AND substr(transaction_date, 1, 4) = ?',
+        'SELECT * FROM transactions WHERE user_id = ? AND strftime("%Y", transaction_date) = ?',
         [user.id, year.toString()]
       )) as any[];
 
@@ -484,9 +478,9 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       const monthlyBreakdown: any = {};
 
       for (let month = 1; month <= 12; month++) {
-        const monthStr = month.toString().padStart(2, "0");
         const monthTransactions = transactions.filter((t: any) => {
-          return t.transaction_date.startsWith(`${year}-${monthStr}`);
+          const date = new Date(t.transaction_date);
+          return date.getMonth() + 1 === month && date.getFullYear() === year;
         });
 
         const monthIncome = monthTransactions
@@ -529,7 +523,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         monthlyBreakdown,
       };
     } catch (error) {
-      console.error("❌ Error generating yearly report:", error);
+      console.error("Error generating yearly report:", error);
       return {};
     }
   };
@@ -549,13 +543,17 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     try {
       const currentMonth = new Date().getMonth() + 1;
       const currentYear = new Date().getFullYear();
-      const monthStr = currentMonth.toString().padStart(2, "0");
 
       const transactions = await getTransactions();
       const recentTransactions = transactions.slice(0, 10);
 
       const monthlyTransactions = transactions.filter((t: any) => {
-        return t.transaction_date.startsWith(`${currentYear}-${monthStr}`);
+        if (!t.transaction_date && !t.date) return false;
+        const date = new Date(t.transaction_date || t.date);
+        return (
+          date.getMonth() + 1 === currentMonth &&
+          date.getFullYear() === currentYear
+        );
       });
 
       const monthlyIncome = monthlyTransactions
@@ -590,7 +588,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         recentTransactions: recentTransactions || [],
       };
     } catch (error) {
-      console.error("❌ Error getting dashboard data:", error);
+      console.error("Error getting dashboard data:", error);
       return {
         currentBalance: 0,
         monthlyIncome: 0,
@@ -611,19 +609,15 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
     try {
       setPendingSync(true);
-      console.log("🔄 Starting data sync...");
 
       // Get pending sync operations
       const syncQueue = (await db.getAllAsync(
         "SELECT * FROM sync_queue ORDER BY created_at"
       )) as any[];
 
-      console.log(`📦 Found ${syncQueue.length} items to sync`);
-
       for (const operation of syncQueue) {
         try {
           const data = JSON.parse(operation.data);
-          console.log(`🔄 Syncing ${operation.table_name} ${operation.operation}`);
 
           switch (operation.table_name) {
             case "transactions":
@@ -638,18 +632,15 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           await db.runAsync("DELETE FROM sync_queue WHERE id = ?", [
             operation.id,
           ]);
-          console.log(`✅ Synced ${operation.table_name} ${operation.operation}`);
         } catch (error) {
-          console.error(`❌ Error syncing operation ${operation.id}:`, error);
-          // Don't throw here, continue with other operations
+          console.error(`Error syncing operation ${operation.id}:`, error);
         }
       }
 
       // Pull latest data from server
       await pullLatestData();
-      console.log("✅ Data sync completed successfully");
     } catch (error) {
-      console.error("❌ Error during sync:", error);
+      console.error("Error during sync:", error);
       throw error;
     } finally {
       setPendingSync(false);
@@ -660,17 +651,14 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
 
     try {
-      const config = {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000 // 10 second timeout
-      };
-
       switch (operation.operation) {
         case "create":
           const createResponse = await axios.post(
             `${API_BASE_URL}/transactions`,
             data,
-            config
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
           );
           await db.runAsync(
             "UPDATE transactions SET server_id = ?, sync_status = ? WHERE id = ?",
@@ -681,7 +669,9 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           await axios.put(
             `${API_BASE_URL}/transactions/${operation.record_id}`,
             data,
-            config
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
           );
           await db.runAsync(
             "UPDATE transactions SET sync_status = ? WHERE id = ?",
@@ -689,13 +679,13 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           );
           break;
         case "delete":
-          if (data.server_id) {
-            await axios.delete(`${API_BASE_URL}/transactions/${data.server_id}`, config);
-          }
+          await axios.delete(`${API_BASE_URL}/transactions/${data.server_id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           break;
       }
-    } catch (error: any) {
-      console.error("❌ Error syncing transaction:", error.response?.data || error.message);
+    } catch (error) {
+      console.error("Error syncing transaction:", error);
       throw error;
     }
   };
@@ -704,17 +694,14 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
 
     try {
-      const config = {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000
-      };
-
       switch (operation.operation) {
         case "create":
           const createResponse = await axios.post(
             `${API_BASE_URL}/goals`,
             data,
-            config
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
           );
           await db.runAsync(
             "UPDATE goals SET server_id = ?, sync_status = ? WHERE id = ?",
@@ -725,21 +712,23 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
           await axios.put(
             `${API_BASE_URL}/goals/${operation.record_id}`,
             data,
-            config
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
           );
-          await db.runAsync(
-            "UPDATE goals SET sync_status = ? WHERE id = ?",
-            ["synced", operation.record_id]
-          );
+          await db.runAsync("UPDATE goals SET sync_status = ? WHERE id = ?", [
+            "synced",
+            operation.record_id,
+          ]);
           break;
         case "delete":
-          if (data.server_id) {
-            await axios.delete(`${API_BASE_URL}/goals/${data.server_id}`, config);
-          }
+          await axios.delete(`${API_BASE_URL}/goals/${data.server_id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
           break;
       }
-    } catch (error: any) {
-      console.error("❌ Error syncing goal:", error.response?.data || error.message);
+    } catch (error) {
+      console.error("Error syncing goal:", error);
       throw error;
     }
   };
@@ -748,24 +737,20 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     if (!token || !user || !db) return;
 
     try {
-      console.log("📥 Pulling latest data from server...");
-      const config = {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 15000
-      };
-
       // Pull transactions
       const transactionsResponse = await axios.get(
         `${API_BASE_URL}/transactions`,
-        config
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
       const serverTransactions = transactionsResponse.data.data;
 
       // Pull goals
-      const goalsResponse = await axios.get(`${API_BASE_URL}/goals`, config);
+      const goalsResponse = await axios.get(`${API_BASE_URL}/goals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const serverGoals = goalsResponse.data.data;
-
-      console.log(`📥 Retrieved ${serverTransactions.length} transactions and ${serverGoals.length} goals from server`);
 
       // Update local database with server data
       // Clear existing data that's synced
@@ -777,17 +762,17 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
       // Insert server data
       for (const transaction of serverTransactions) {
         await db.runAsync(
-          `INSERT OR REPLACE INTO transactions 
-           (server_id, amount, description, type, category, transaction_date, user_id, sync_status) 
+          `INSERT INTO transactions 
+           (amount, description, type, category, transaction_date, user_id, server_id, sync_status) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            transaction.id,
             transaction.amount,
             transaction.desc,
             transaction.type,
             transaction.category,
             transaction.date,
             user.id,
+            transaction.id,
             "synced",
           ]
         );
@@ -795,23 +780,21 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
 
       for (const goal of serverGoals) {
         await db.runAsync(
-          `INSERT OR REPLACE INTO goals 
-           (server_id, target_amount, target_month, target_year, user_id, sync_status) 
+          `INSERT INTO goals 
+           (target_amount, target_month, target_year, user_id, server_id, sync_status) 
            VALUES (?, ?, ?, ?, ?, ?)`,
           [
-            goal.id,
             goal.target_amount,
             goal.target_month,
             goal.target_year,
             user.id,
+            goal.id,
             "synced",
           ]
         );
       }
-
-      console.log("✅ Local database updated with server data");
     } catch (error) {
-      console.error("❌ Error pulling latest data:", error);
+      console.error("Error pulling latest data:", error);
     }
   };
 
@@ -824,9 +807,8 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
         DELETE FROM goals;
         DELETE FROM sync_queue;
       `);
-      console.log("✅ Local data cleared");
     } catch (error) {
-      console.error("❌ Error clearing local data:", error);
+      console.error("Error clearing local data:", error);
       throw error;
     }
   };
