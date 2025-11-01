@@ -742,70 +742,65 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const pullLatestData = async () => {
+  // Also update the pullLatestData function to handle field mapping
+const pullLatestData = async () => {
     if (!token || !user || !db) return;
 
     try {
-      // Pull transactions
-      const transactionsResponse = await axios.get(
-        `${API_BASE_URL}/transactions`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
+        // Pull transactions
+        const transactionsResponse = await axios.get(
+            `${API_BASE_URL}/transactions`,
+            {
+                headers: { Authorization: `Bearer ${token}` },
+            }
+        );
+        const serverTransactions = transactionsResponse.data.data;
+
+        // Update local database with server data
+        // Clear existing data that's synced
+        await db.runAsync(
+            'DELETE FROM transactions WHERE sync_status = "synced"'
+        );
+        await db.runAsync('DELETE FROM goals WHERE sync_status = "synced"');
+
+        // Insert server data - map backend fields to frontend fields
+        for (const transaction of serverTransactions) {
+            await db.runAsync(
+                `INSERT INTO transactions 
+                 (amount, description, type, category, transaction_date, user_id, server_id, sync_status) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    transaction.amount,
+                    transaction.desc || transaction.description, // Handle both field names
+                    transaction.type,
+                    transaction.category,
+                    transaction.date || transaction.transaction_date, // Handle both field names
+                    user.id,
+                    transaction.id,
+                    "synced",
+                ]
+            );
         }
-      );
-      const serverTransactions = transactionsResponse.data.data;
 
-      // Pull goals
-      const goalsResponse = await axios.get(`${API_BASE_URL}/goals`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const serverGoals = goalsResponse.data.data;
-
-      // Update local database with server data
-      // Clear existing data that's synced
-      await db.runAsync(
-        'DELETE FROM transactions WHERE sync_status = "synced"'
-      );
-      await db.runAsync('DELETE FROM goals WHERE sync_status = "synced"');
-
-      // Insert server data
-      for (const transaction of serverTransactions) {
-        await db.runAsync(
-          `INSERT INTO transactions 
-           (amount, description, type, category, transaction_date, user_id, server_id, sync_status) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            transaction.amount,
-            transaction.desc || transaction.description, // Handle both field names
-            transaction.type,
-            transaction.category,
-            transaction.date || transaction.transaction_date, // Handle both field names
-            user.id,
-            transaction.id,
-            "synced",
-          ]
-        );
-      }
-
-      for (const goal of serverGoals) {
-        await db.runAsync(
-          `INSERT INTO goals 
-           (target_amount, target_month, target_year, user_id, server_id, sync_status) 
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            goal.target_amount,
-            goal.target_month,
-            goal.target_year,
-            user.id,
-            goal.id,
-            "synced",
-          ]
-        );
-      }
+        for (const goal of serverGoals) {
+            await db.runAsync(
+                `INSERT INTO goals 
+                 (target_amount, target_month, target_year, user_id, server_id, sync_status) 
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                    goal.target_amount,
+                    goal.target_month,
+                    goal.target_year,
+                    user.id,
+                    goal.id,
+                    "synced",
+                ]
+            );
+        }
     } catch (error) {
-      console.error("Error pulling latest data:", error);
+        console.error("Error pulling latest data:", error);
     }
-  };
+};
 
   const clearLocalData = async (): Promise<void> => {
     if (!db) throw new Error("Database not initialized");
