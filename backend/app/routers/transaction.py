@@ -17,6 +17,7 @@ class TransactionRequest(BaseModel):
 @router.post("/transactions")
 async def create_transaction(body: TransactionRequest = Body(...), user: dict = Depends(authenticate_token)):
     try:
+        print(f"Received transaction data: {body.dict()}")
         if not all([body.amount, body.desc, body.type, body.category, body.date]):
             raise HTTPException(400, {"success": False, "message": "All fields are required"})
         
@@ -24,9 +25,11 @@ async def create_transaction(body: TransactionRequest = Body(...), user: dict = 
             raise HTTPException(400, {"success": False, "message": 'Type must be either "income" or "expense"'})
         
         transaction_id = await Transaction.create({**body.dict(), "user_id": user["id"]})
+        print(f"Transaction created with ID: {transaction_id}")
         
         return {"success": True, "message": "Transaction created successfully", "data": {"id": transaction_id}}, 201
     except Exception as e:
+        print(f"Error in create_transaction: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to create transaction", "error": str(e)})
 
 @router.get("/transactions")

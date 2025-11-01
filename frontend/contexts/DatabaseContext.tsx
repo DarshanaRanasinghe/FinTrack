@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext";
 import NetInfo from "@react-native-community/netinfo";
 import { isValidDateString } from "@/utils/dateUtils";
 
-const API_BASE_URL = "http://192.168.1.3:3000/api";
+const API_BASE_URL = "http://192.168.1.12:3000/api";
 
 interface DatabaseContextType {
   // Transactions
@@ -651,44 +651,53 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     if (!token) return;
 
     try {
-      switch (operation.operation) {
-        case "create":
-          const createResponse = await axios.post(
-            `${API_BASE_URL}/transactions`,
-            data,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-          await db.runAsync(
-            "UPDATE transactions SET server_id = ?, sync_status = ? WHERE id = ?",
-            [createResponse.data.data.id, "synced", operation.record_id]
-          );
-          break;
-        case "update":
-          await axios.put(
-            `${API_BASE_URL}/transactions/${operation.record_id}`,
-            data,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
-          );
-          await db.runAsync(
-            "UPDATE transactions SET sync_status = ? WHERE id = ?",
-            ["synced", operation.record_id]
-          );
-          break;
-        case "delete":
-          await axios.delete(`${API_BASE_URL}/transactions/${data.server_id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          break;
-      }
+        // Prepare data for backend - map 'desc' to 'description' and 'date' to 'transaction_date'
+        const backendData = {
+            amount: data.amount,
+            description: data.desc, // Map 'desc' to 'description'
+            type: data.type,
+            category: data.category,
+            transaction_date: data.date, // Map 'date' to 'transaction_date'
+        };
+
+        switch (operation.operation) {
+            case "create":
+                const createResponse = await axios.post(
+                    `${API_BASE_URL}/transactions`,
+                    backendData,
+                    {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }
+                );
+                await db.runAsync(
+                    "UPDATE transactions SET server_id = ?, sync_status = ? WHERE id = ?",
+                    [createResponse.data.data.id, "synced", operation.record_id]
+                );
+                break;
+            case "update":
+                await axios.put(
+                    `${API_BASE_URL}/transactions/${operation.record_id}`,
+                    backendData,
+                    {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }
+                );
+                await db.runAsync(
+                    "UPDATE transactions SET sync_status = ? WHERE id = ?",
+                    ["synced", operation.record_id]
+                );
+                break;
+            case "delete":
+                await axios.delete(`${API_BASE_URL}/transactions/${data.server_id}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                break;
+        }
     } catch (error) {
-      console.error("Error syncing transaction:", error);
-      throw error;
+        console.error("Error syncing transaction:", error);
+        throw error;
     }
-  };
+};
 
   const syncGoal = async (operation: any, data: any) => {
     if (!token) return;
@@ -767,10 +776,10 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             transaction.amount,
-            transaction.desc,
+            transaction.desc || transaction.description, // Handle both field names
             transaction.type,
             transaction.category,
-            transaction.date,
+            transaction.date || transaction.transaction_date, // Handle both field names
             user.id,
             transaction.id,
             "synced",
