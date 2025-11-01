@@ -1,3 +1,4 @@
+# backend/app/models/transaction.py
 from app.config.database import get_connection
 
 class Transaction:
@@ -7,11 +8,11 @@ class Transaction:
         cursor = conn.cursor()
         try:
             amount = transaction_data['amount']
-            description = transaction_data['description']
+            description = transaction_data['desc']
             type_ = transaction_data['type']
             category = transaction_data['category']
             user_id = transaction_data['user_id']
-            transaction_date = transaction_data['transaction_date']
+            transaction_date = transaction_data['date']  # Fixed: Use 'date' from request body
             
             cursor.execute("SELECT transactions_seq.NEXTVAL AS id FROM DUAL")
             next_id = cursor.fetchone()[0]
@@ -133,10 +134,10 @@ class Transaction:
         cursor = conn.cursor()
         try:
             amount = transaction_data['amount']
-            description = transaction_data['description']
+            description = transaction_data['desc']
             type_ = transaction_data['type']
             category = transaction_data['category']
-            transaction_date = transaction_data['transaction_date']
+            transaction_date = transaction_data['date']  # Fixed: Use 'date' from request body
             
             cursor.execute("""
                 UPDATE transactions
