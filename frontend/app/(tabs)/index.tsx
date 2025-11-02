@@ -17,13 +17,19 @@ import {
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useDatabase } from "../../contexts/DatabaseContext";
-import { format, subMonths } from "date-fns";
+import {
+  format,
+  subDays,
+  differenceInCalendarDays,
+  startOfWeek,
+  eachWeekOfInterval,
+  addWeeks,
+} from "date-fns";
 import { safeFormatDate } from "@/utils/dateUtils";
-import { LineChart, BarChart, PieChart } from "react-native-chart-kit";
+import { LineChart, PieChart } from "react-native-chart-kit";
+const { width } = Dimensions.get("window");
 
-const { width } = Dimensions.get('window');
-
-// Types for better type safety
+// Types
 interface Transaction {
   id: string;
   amount: number;
@@ -32,7 +38,6 @@ interface Transaction {
   category: string;
   transaction_date: string;
 }
-
 interface Goal {
   id: string;
   target_amount: number;
@@ -40,7 +45,6 @@ interface Goal {
   title: string;
   deadline: string;
 }
-
 interface ChartData {
   expenses: number[];
   income: number[];
@@ -48,7 +52,6 @@ interface ChartData {
   labels: string[];
   categories?: { name: string; amount: number; color: string }[];
 }
-
 interface DashboardData {
   currentBalance: number;
   monthlyIncome: number;
@@ -59,186 +62,162 @@ interface DashboardData {
 }
 
 export default function DashboardScreen() {
-  const { user, token } = useAuth();
-  const { 
-    getDashboardData, 
-    syncData,
-    isOnline,
-    getTransactions,
-    getGoals 
-  } = useDatabase();
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const { user } = useAuth();
+  const { isOnline, getTransactions, getGoals, syncData } = useDatabase();
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
-  const [chartType, setChartType] = useState<"line" | "bar">("line");
 
   const processChartData = (transactions: Transaction[]): ChartData => {
-    // Generate last 6 months labels
-    const labels = [];
-    for (let i = 5; i >= 0; i--) {
-      const date = subMonths(new Date(), i);
-      labels.push(format(date, "MMM"));
-    }
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const start = startOfWeek(subDays(today, 34), { weekStartsOn: 1 });
+    const weeks = eachWeekOfInterval(
+      { start, end: today },
+      { weekStartsOn: 1 }
+    ).slice(0, 5);
+    const labels: string[] = weeks.map((_, i) => `Week ${i + 1}`);
+    const expenses = Array(weeks.length).fill(0);
+    const income = Array(weeks.length).fill(0);
+    const net = Array(weeks.length).fill(0);
 
-    // Initialize arrays for data
-    const expenses = Array(6).fill(0);
-    const income = Array(6).fill(0);
-    const net = Array(6).fill(0);
-
-    // Process transactions by month
-    transactions.forEach(transaction => {
-      const transactionDate = new Date(transaction.transaction_date);
-      const monthDiff = Math.floor(
-        (new Date().getTime() - transactionDate.getTime()) / 
-        (30 * 24 * 60 * 60 * 1000)
+    transactions.forEach((transaction) => {
+      const txDate = new Date(transaction.transaction_date);
+      const txDay = new Date(
+        txDate.getFullYear(),
+        txDate.getMonth(),
+        txDate.getDate()
       );
-      
-      if (monthDiff >= 0 && monthDiff < 6) {
-        const index = 5 - monthDiff;
-        if (transaction.type === "expense") {
-          expenses[index] += transaction.amount;
-        } else {
-          income[index] += transaction.amount;
+      if (txDay >= weeks[0] && txDay <= today) {
+        let bucketIndex = -1;
+        for (let i = 0; i < weeks.length - 1; i++) {
+          const weekEnd = addWeeks(weeks[i], 1);
+          if (txDay >= weeks[i] && txDay < weekEnd) {
+            bucketIndex = i;
+            break;
+          }
+        }
+        if (bucketIndex === -1 && txDay >= weeks[weeks.length - 1]) {
+          bucketIndex = weeks.length - 1;
+        }
+        if (bucketIndex >= 0) {
+          if (transaction.type === "expense") {
+            expenses[bucketIndex] += transaction.amount;
+          } else {
+            income[bucketIndex] += transaction.amount;
+          }
         }
       }
     });
 
-    // Calculate net income
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < weeks.length; i++) {
       net[i] = income[i] - expenses[i];
     }
 
-    // Calculate category breakdown for pie chart
-    const categoryMap = new Map();
+    // Pie chart: last 30 days expenses
+    const categoryMap = new Map<string, number>();
     const categoryColors = [
-      "#EF4444", "#F59E0B", "#10B981", "#3B82F6", "#8B5CF6", 
-      "#EC4899", "#06B6D4", "#84CC16", "#F97316", "#6366F1"
+      "#EF4444",
+      "#F59E0B",
+      "#10B981",
+      "#3B82F6",
+      "#8B5CF6",
+      "#EC4899",
+      "#06B6D4",
+      "#84CC16",
+      "#F97316",
+      "#6366F1",
     ];
-
-    transactions
-      .filter(t => t.type === "expense")
-      .forEach((transaction, index) => {
+    const last30Tx = transactions.filter((tx) => {
+      const txDate = new Date(tx.transaction_date);
+      const dayDiff = differenceInCalendarDays(now, txDate);
+      return dayDiff >= 0 && dayDiff < 30;
+    });
+    last30Tx
+      .filter((t) => t.type === "expense")
+      .forEach((transaction) => {
         const category = transaction.category || "Uncategorized";
         const current = categoryMap.get(category) || 0;
         categoryMap.set(category, current + transaction.amount);
       });
+    const categories = Array.from(categoryMap.entries()).map(
+      ([name, amount], index) => ({
+        name,
+        amount,
+        color: categoryColors[index % categoryColors.length],
+        legendFontColor: "#64748B",
+        legendFontSize: 12,
+      })
+    );
 
-    const categories = Array.from(categoryMap.entries()).map(([name, amount], index) => ({
-      name,
-      amount,
-      color: categoryColors[index % categoryColors.length],
-      legendFontColor: "#64748B",
-      legendFontSize: 12,
-    }));
-
-    return {
-      expenses,
-      income,
-      net,
-      labels,
-      categories,
-    };
+    return { expenses, income, net, labels, categories };
   };
 
   const loadDashboardData = async () => {
     try {
-      // Try to get actual data first
-      let data = await getDashboardData();
-      
-      if (!data) {
-        // If no dashboard data, fetch transactions and goals separately
-        const [transactions, goals] = await Promise.all([
-          getTransactions(),
-          getGoals()
-        ]);
+      setLoading(true);
+      const [transactions, goals] = await Promise.all([
+        getTransactions(),
+        getGoals(),
+      ]);
+      const txs = transactions || [];
+      const chartData = processChartData(txs);
 
-        const chartData = processChartData(transactions || []);
-        
-        // Calculate current month totals
-        const currentMonth = new Date().getMonth();
-        const currentYear = new Date().getFullYear();
-        
-        const currentMonthTransactions = (transactions || []).filter(t => {
-          const date = new Date(t.transaction_date);
-          return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
-        });
-
-        const monthlyIncome = currentMonthTransactions
-          .filter(t => t.type === "income")
-          .reduce((sum, t) => sum + t.amount, 0);
-
-        const monthlyExpenses = currentMonthTransactions
-          .filter(t => t.type === "expense")
-          .reduce((sum, t) => sum + t.amount, 0);
-
-        const currentBalance = monthlyIncome - monthlyExpenses;
-        const currentGoal = goals && goals.length > 0 ? goals[0] : null;
-
-        data = {
-          currentBalance,
-          monthlyIncome,
-          monthlyExpenses,
-          currentGoal,
-          recentTransactions: (transactions || []).slice(0, 10),
-          chartData,
-        };
-      }
-
-      setDashboardData(data);
-    } catch (error) {
-      console.error("Error loading dashboard data:", error);
-      // Fallback to sample data that demonstrates the chart
-      const sampleChartData = {
-        expenses: [3200, 2800, 3500, 3100, 2900, 3300],
-        income: [4500, 4200, 4800, 4600, 4400, 4700],
-        net: [1300, 1400, 1300, 1500, 1500, 1400],
-        labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-        categories: [
-          { name: "Food", amount: 800, color: "#EF4444" },
-          { name: "Transport", amount: 600, color: "#F59E0B" },
-          { name: "Entertainment", amount: 400, color: "#10B981" },
-          { name: "Shopping", amount: 900, color: "#3B82F6" },
-          { name: "Bills", amount: 500, color: "#8B5CF6" },
-        ].map(item => ({
-          ...item,
-          legendFontColor: "#64748B",
-          legendFontSize: 12,
-        }))
-      };
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const currentMonthTransactions = txs.filter((t) => {
+        const date = new Date(t.transaction_date);
+        return (
+          date.getMonth() === currentMonth && date.getFullYear() === currentYear
+        );
+      });
+      const monthlyIncome = currentMonthTransactions
+        .filter((t) => t.type === "income")
+        .reduce((sum, t) => sum + t.amount, 0);
+      const monthlyExpenses = currentMonthTransactions
+        .filter((t) => t.type === "expense")
+        .reduce((sum, t) => sum + t.amount, 0);
+      const currentBalance = monthlyIncome - monthlyExpenses;
+      const currentGoal = goals && goals.length > 0 ? goals[0] : null;
+      const recentTransactions = [...txs]
+        .sort(
+          (a, b) =>
+            new Date(b.transaction_date).getTime() -
+            new Date(a.transaction_date).getTime()
+        )
+        .slice(0, 10);
 
       setDashboardData({
-        currentBalance: 12500.50,
-        monthlyIncome: 4500.00,
-        monthlyExpenses: 3200.75,
-        currentGoal: {
-          id: "1",
-          target_amount: 5000,
-          progress: 3200.75,
-          title: "Emergency Fund",
-          deadline: "2024-12-31"
-        },
-        recentTransactions: [
-          {
-            id: "1",
-            amount: 1200,
-            type: "income",
-            description: "Salary",
-            category: "Income",
-            transaction_date: new Date().toISOString()
-          },
-          {
-            id: "2",
-            amount: 150,
-            type: "expense",
-            description: "Grocery Shopping",
-            category: "Food",
-            transaction_date: new Date().toISOString()
-          }
-        ],
-        chartData: sampleChartData
+        currentBalance,
+        monthlyIncome,
+        monthlyExpenses,
+        currentGoal,
+        recentTransactions,
+        chartData,
       });
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
+      const emptyChartData: ChartData = {
+        expenses: Array(5).fill(0),
+        income: Array(5).fill(0),
+        net: Array(5).fill(0),
+        labels: Array.from({ length: 5 }, (_, i) => `Week ${i + 1}`),
+        categories: [],
+      };
+      setDashboardData({
+        currentBalance: 0,
+        monthlyIncome: 0,
+        monthlyExpenses: 0,
+        currentGoal: null,
+        recentTransactions: [],
+        chartData: emptyChartData,
+      });
+      setSnackbarMessage("Failed to load data.");
+      setSnackbarVisible(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -266,7 +245,6 @@ export default function DashboardScreen() {
     loadDashboardData();
   }, []);
 
-  // Enhanced chart configuration
   const chartConfig = {
     backgroundColor: "#FFFFFF",
     backgroundGradientFrom: "#FFFFFF",
@@ -274,68 +252,34 @@ export default function DashboardScreen() {
     decimalPlaces: 0,
     color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
     labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
-    style: {
-      borderRadius: 16,
-    },
-    propsForDots: {
-      r: "5",
-      strokeWidth: "2",
-      stroke: "#FFFFFF",
-    },
-    propsForBackgroundLines: {
-      stroke: "#E5E7EB",
-      strokeWidth: 1,
-      strokeDasharray: "0",
-    },
+    style: { borderRadius: 16 },
+    propsForDots: { r: "5", strokeWidth: "2", stroke: "#FFFFFF" },
+    propsForBackgroundLines: { stroke: "#E5E7EB", strokeWidth: 1 },
     fillShadowGradient: "#6366F1",
     fillShadowGradientOpacity: 0.1,
   };
 
-  // Financial Trend Chart Data
   const financialChartData = {
-    labels: dashboardData?.chartData?.labels || ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+    labels:
+      dashboardData?.chartData?.labels ||
+      Array.from({ length: 5 }, (_, i) => `Week ${i + 1}`),
     datasets: [
       {
-        data: dashboardData?.chartData?.expenses || [0, 0, 0, 0, 0, 0],
-        color: (opacity = 1) => `rgba(239, 68, 68, ${opacity})`,
+        data: dashboardData?.chartData?.expenses || Array(5).fill(0),
+        color: () => `rgba(239, 68, 68, 1)`,
         strokeWidth: 3,
-        withShadow: true,
       },
       {
-        data: dashboardData?.chartData?.income || [0, 0, 0, 0, 0, 0],
-        color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`,
+        data: dashboardData?.chartData?.income || Array(5).fill(0),
+        color: () => `rgba(16, 185, 129, 1)`,
         strokeWidth: 3,
-        withShadow: true,
       },
       {
-        data: dashboardData?.chartData?.net || [0, 0, 0, 0, 0, 0],
-        color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
+        data: dashboardData?.chartData?.net || Array(5).fill(0),
+        color: () => `rgba(99, 102, 241, 1)`,
         strokeWidth: 4,
-        withShadow: true,
       },
     ],
-  };
-
-  // Bar chart data for monthly comparison
-  const barChartData = {
-    labels: dashboardData?.chartData?.labels || ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-    datasets: [
-      {
-        data: dashboardData?.chartData?.income || [0, 0, 0, 0, 0, 0],
-      },
-      {
-        data: dashboardData?.chartData?.expenses || [0, 0, 0, 0, 0, 0],
-      },
-    ],
-  };
-
-  const barChartConfig = {
-    ...chartConfig,
-    barPercentage: 0.7,
-    decimalPlaces: 0,
-    color: (opacity = 1, index: number) => 
-      index === 0 ? `rgba(16, 185, 129, ${opacity})` : `rgba(239, 68, 68, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
   };
 
   if (loading) {
@@ -347,14 +291,12 @@ export default function DashboardScreen() {
     );
   }
 
-  // Safe data access with defaults
   const currentBalance = dashboardData?.currentBalance || 0;
   const monthlyIncome = dashboardData?.monthlyIncome || 0;
   const monthlyExpenses = dashboardData?.monthlyExpenses || 0;
   const currentGoal = dashboardData?.currentGoal || null;
   const recentTransactions = dashboardData?.recentTransactions || [];
   const chartData = dashboardData?.chartData;
-
   const goalProgress = currentGoal?.progress || 0;
   const goalTarget = currentGoal?.target_amount || 1;
   const goalPercentage = Math.min((goalProgress / goalTarget) * 100, 100);
@@ -365,11 +307,10 @@ export default function DashboardScreen() {
       <ScrollView
         style={styles.scrollView}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
+          <RefreshControl
+            refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={['#6366F1']}
-            tintColor="#6366F1"
+            colors={["#6366F1"]}
           />
         }
         showsVerticalScrollIndicator={false}
@@ -378,7 +319,7 @@ export default function DashboardScreen() {
         <View style={styles.header}>
           <View style={styles.welcomeContainer}>
             <Text style={styles.welcomeText}>
-              Welcome back, {user?.name || 'User'}! 👋
+              Welcome back, {user?.name || "User"}! 👋
             </Text>
             <Text style={styles.dateText}>
               {format(new Date(), "EEEE, MMMM d, yyyy")}
@@ -386,7 +327,7 @@ export default function DashboardScreen() {
           </View>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+              {user?.name?.charAt(0)?.toUpperCase() || "U"}
             </Text>
           </View>
         </View>
@@ -397,12 +338,11 @@ export default function DashboardScreen() {
             <Card.Content style={styles.offlineContent}>
               <View style={styles.offlineIndicator} />
               <Text style={styles.offlineText}>You're offline</Text>
-              <Button 
-                mode="contained" 
-                compact 
+              <Button
+                mode="contained"
+                compact
                 onPress={handleSync}
                 style={styles.syncButton}
-                labelStyle={styles.syncButtonLabel}
               >
                 Sync Now
               </Button>
@@ -415,15 +355,19 @@ export default function DashboardScreen() {
           <Card.Content style={styles.balanceContent}>
             <View style={styles.balanceHeader}>
               <Text style={styles.balanceLabel}>Current Balance</Text>
-              <View style={[styles.balanceTrend, netIncome >= 0 ? styles.positiveTrend : styles.negativeTrend]}>
+              <View
+                style={[
+                  styles.balanceTrend,
+                  netIncome >= 0 ? styles.positiveTrend : styles.negativeTrend,
+                ]}
+              >
                 <Text style={styles.trendText}>
-                  {netIncome >= 0 ? '+' : ''}{((netIncome / (monthlyIncome || 1)) * 100).toFixed(1)}%
+                  {netIncome >= 0 ? "+" : ""}
+                  {((netIncome / (monthlyIncome || 1)) * 100).toFixed(1)}%
                 </Text>
               </View>
             </View>
-            <Text style={styles.balanceText}>
-              ${currentBalance.toFixed(2)}
-            </Text>
+            <Text style={styles.balanceText}>${currentBalance.toFixed(2)}</Text>
             <View style={styles.incomeExpenseContainer}>
               <View style={styles.incomeContainer}>
                 <View style={[styles.indicator, styles.incomeIndicator]} />
@@ -444,11 +388,26 @@ export default function DashboardScreen() {
                 </View>
               </View>
               <View style={styles.netContainer}>
-                <View style={[styles.indicator, netIncome >= 0 ? styles.incomeIndicator : styles.expenseIndicator]} />
+                <View
+                  style={[
+                    styles.indicator,
+                    netIncome >= 0
+                      ? styles.incomeIndicator
+                      : styles.expenseIndicator,
+                  ]}
+                />
                 <View>
                   <Text style={styles.amountLabel}>Net</Text>
-                  <Text style={[styles.netAmount, netIncome >= 0 ? styles.incomeAmount : styles.expenseAmount]}>
-                    {netIncome >= 0 ? '+' : '-'}${Math.abs(netIncome).toFixed(2)}
+                  <Text
+                    style={[
+                      styles.netAmount,
+                      netIncome >= 0
+                        ? styles.incomeAmount
+                        : styles.expenseAmount,
+                    ]}
+                  >
+                    {netIncome >= 0 ? "+" : "-"}$
+                    {Math.abs(netIncome).toFixed(2)}
                   </Text>
                 </View>
               </View>
@@ -456,77 +415,51 @@ export default function DashboardScreen() {
           </Card.Content>
         </Card>
 
-        {/* Financial Charts Section */}
+        {/* Financial Overview - Line Chart Only */}
         <Card style={styles.card}>
           <Card.Content>
-            <View style={styles.cardHeader}>
-              <Title style={styles.cardTitle}>Financial Overview</Title>
-              <View style={styles.chartTypeSelector}>
-                <Button
-                  mode={chartType === "line" ? "contained" : "outlined"}
-                  compact
-                  onPress={() => setChartType("line")}
-                  style={styles.chartTypeButton}
-                >
-                  Line
-                </Button>
-                <Button
-                  mode={chartType === "bar" ? "contained" : "outlined"}
-                  compact
-                  onPress={() => setChartType("bar")}
-                  style={styles.chartTypeButton}
-                >
-                  Bar
-                </Button>
-              </View>
-            </View>
-
+            <Title style={styles.cardTitle}>
+              Financial Overview (Last 5 Weeks)
+            </Title>
             <View style={styles.chartContainer}>
-              {chartType === "line" ? (
-                <LineChart
-                  data={financialChartData}
-                  width={width - 64}
-                  height={240}
-                  chartConfig={chartConfig}
-                  bezier
-                  style={styles.chart}
-                  withVerticalLines={false}
-                  withHorizontalLines={true}
-                  withInnerLines={false}
-                  withOuterLines={false}
-                  withShadow={true}
-                  withDots={true}
-                  segments={5}
-                  getDotColor={(dataPoint, index) => 
-                    index === financialChartData.datasets[2].data.length - 1 ? '#6366F1' : 'transparent'
-                  }
-                />
-              ) : (
-                <BarChart
-                  data={barChartData}
-                  width={width - 64}
-                  height={240}
-                  chartConfig={barChartConfig}
-                  style={styles.chart}
-                  showValuesOnTopOfBars
-                  withCustomBarColorFromData
-                  flatColor={true}
-                  showBarTops={false}
-                />
-              )}
-              
-              {/* Custom Legend */}
+              <LineChart
+                data={financialChartData}
+                width={width - 64}
+                height={240}
+                chartConfig={chartConfig}
+                bezier
+                style={styles.chart}
+                withVerticalLines={false}
+                withHorizontalLines={true}
+                withInnerLines={false}
+                withOuterLines={false}
+                withDots={true}
+                segments={5}
+                getDotColor={(dataPoint, index) =>
+                  index === financialChartData.datasets[2].data.length - 1
+                    ? "#6366F1"
+                    : "transparent"
+                }
+              />
+
+              {/* Legend */}
               <View style={styles.legendContainer}>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: '#EF4444' }]} />
+                  <View
+                    style={[styles.legendColor, { backgroundColor: "#EF4444" }]}
+                  />
                   <Text style={styles.legendText}>Expenses</Text>
                 </View>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: '#10B981' }]} />
+                  <View
+                    style={[styles.legendColor, { backgroundColor: "#10B981" }]}
+                  />
                   <Text style={styles.legendText}>Income</Text>
                 </View>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: '#6366F1' }]} />
+                  <View
+                    style={[styles.legendColor, { backgroundColor: "#6366F1" }]}
+                  />
                   <Text style={styles.legendText}>Net</Text>
                 </View>
               </View>
@@ -538,9 +471,9 @@ export default function DashboardScreen() {
         {chartData?.categories && chartData.categories.length > 0 && (
           <Card style={styles.card}>
             <Card.Content>
-              <View style={styles.cardHeader}>
-                <Title style={styles.cardTitle}>Expense Categories</Title>
-              </View>
+              <Title style={styles.cardTitle}>
+                Expense Categories (Last 30 days)
+              </Title>
               <View style={styles.pieChartContainer}>
                 <PieChart
                   data={chartData.categories}
@@ -562,14 +495,13 @@ export default function DashboardScreen() {
           <Card.Content>
             <View style={styles.cardHeader}>
               <Title style={styles.cardTitle}>
-                {currentGoal?.title || 'Monthly Goal'}
+                {currentGoal?.title || "Monthly Goal"}
               </Title>
-              <Button 
-                mode="text" 
+              <Button
+                mode="text"
                 compact
                 onPress={() => router.push("/goals")}
                 textColor="#6366F1"
-                labelStyle={styles.viewAllLabel}
               >
                 View All
               </Button>
@@ -586,31 +518,38 @@ export default function DashboardScreen() {
                     </Text>
                   </View>
                   <View style={styles.progressBarBackground}>
-                    <View 
+                    <View
                       style={[
                         styles.progressBarFill,
-                        { 
+                        {
                           width: `${goalPercentage}%`,
-                          backgroundColor: goalPercentage >= 100 ? '#10B981' : '#6366F1'
-                        }
-                      ]} 
+                          backgroundColor:
+                            goalPercentage >= 100 ? "#10B981" : "#6366F1",
+                        },
+                      ]}
                     />
                   </View>
                 </View>
-                <Text style={[
-                  styles.goalStatus,
-                  goalProgress >= goalTarget ? styles.goalAchieved : styles.goalPending
-                ]}>
-                  {goalProgress >= goalTarget 
-                    ? "🎉 Goal achieved!" 
+                <Text
+                  style={[
+                    styles.goalStatus,
+                    goalProgress >= goalTarget
+                      ? styles.goalAchieved
+                      : styles.goalPending,
+                  ]}
+                >
+                  {goalProgress >= goalTarget
+                    ? "🎉 Goal achieved!"
                     : `$${(goalTarget - goalProgress).toFixed(2)} to go`}
                 </Text>
               </View>
             ) : (
               <View style={styles.noGoalContainer}>
-                <Text style={styles.noGoalText}>No goal set for this month</Text>
-                <Button 
-                  mode="outlined" 
+                <Text style={styles.noGoalText}>
+                  No goal set for this month
+                </Text>
+                <Button
+                  mode="outlined"
                   onPress={() => router.push("/(tabs)/goals")}
                   style={styles.setGoalButton}
                 >
@@ -631,8 +570,6 @@ export default function DashboardScreen() {
                 icon="plus"
                 onPress={() => router.push("/(tabs)/transactions")}
                 style={styles.actionButton}
-                contentStyle={styles.actionButtonContent}
-                labelStyle={styles.actionButtonLabel}
               >
                 Add Transaction
               </Button>
@@ -641,8 +578,6 @@ export default function DashboardScreen() {
                 icon="flag"
                 onPress={() => router.push("/(tabs)/goals")}
                 style={styles.actionButton}
-                contentStyle={styles.actionButtonContent}
-                labelStyle={styles.outlinedButtonLabel}
               >
                 Set Goal
               </Button>
@@ -655,30 +590,33 @@ export default function DashboardScreen() {
           <Card.Content>
             <View style={styles.cardHeader}>
               <Title style={styles.cardTitle}>Recent Transactions</Title>
-              <Button 
-                mode="text" 
+              <Button
+                mode="text"
                 compact
                 onPress={() => router.push("/transactions")}
                 textColor="#6366F1"
-                labelStyle={styles.viewAllLabel}
               >
                 View All
               </Button>
             </View>
             {recentTransactions.length > 0 ? (
-              recentTransactions.slice(0, 5).map((transaction: Transaction, index: number) => (
-                <View 
-                  key={transaction.id} 
+              recentTransactions.slice(0, 5).map((transaction, index) => (
+                <View
+                  key={transaction.id}
                   style={[
                     styles.transactionItem,
-                    index === recentTransactions.slice(0, 5).length - 1 && styles.lastTransactionItem
+                    index === 4 && styles.lastTransactionItem,
                   ]}
                 >
                   <View style={styles.transactionLeft}>
-                    <View style={[
-                      styles.transactionIcon,
-                      transaction.type === "income" ? styles.incomeIcon : styles.expenseIcon
-                    ]}>
+                    <View
+                      style={[
+                        styles.transactionIcon,
+                        transaction.type === "income"
+                          ? styles.incomeIcon
+                          : styles.expenseIcon,
+                      ]}
+                    >
                       <Text style={styles.transactionIconText}>
                         {transaction.type === "income" ? "↓" : "↑"}
                       </Text>
@@ -693,13 +631,16 @@ export default function DashboardScreen() {
                     </View>
                   </View>
                   <View style={styles.transactionRight}>
-                    <Text 
+                    <Text
                       style={[
                         styles.transactionAmount,
-                        transaction.type === "income" ? styles.incomeText : styles.expenseText
+                        transaction.type === "income"
+                          ? styles.incomeText
+                          : styles.expenseText,
                       ]}
                     >
-                      {transaction.type === "income" ? "+" : "-"}${transaction.amount.toFixed(2)}
+                      {transaction.type === "income" ? "+" : "-"}$
+                      {transaction.amount.toFixed(2)}
                     </Text>
                     <Text style={styles.transactionDate}>
                       {safeFormatDate(transaction.transaction_date, "MMM d")}
@@ -732,24 +673,15 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F8FAFC",
-  },
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#F8FAFC",
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: "#64748B",
-  },
-  scrollView: {
-    flex: 1,
-  },
+  loadingText: { marginTop: 16, fontSize: 16, color: "#64748B" },
+  scrollView: { flex: 1 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -757,19 +689,14 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 16,
   },
-  welcomeContainer: {
-    flex: 1,
-  },
+  welcomeContainer: { flex: 1 },
   welcomeText: {
     fontSize: 24,
     fontWeight: "700",
     color: "#1E293B",
     marginBottom: 4,
   },
-  dateText: {
-    fontSize: 14,
-    color: "#64748B",
-  },
+  dateText: { fontSize: 14, color: "#64748B" },
   avatar: {
     width: 44,
     height: 44,
@@ -777,17 +704,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#6366F1",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#6366F1",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  avatarText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  avatarText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
   offlineCard: {
     margin: 16,
     marginTop: 0,
@@ -808,19 +726,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#F59E0B",
     marginRight: 8,
   },
-  offlineText: {
-    color: "#92400E",
-    fontWeight: "600",
-    flex: 1,
-  },
-  syncButton: {
-    backgroundColor: "#F59E0B",
-    borderRadius: 8,
-  },
-  syncButtonLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  offlineText: { color: "#92400E", fontWeight: "600", flex: 1 },
+  syncButton: { backgroundColor: "#F59E0B", borderRadius: 8 },
   card: {
     margin: 16,
     marginTop: 0,
@@ -833,35 +740,18 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     overflow: "hidden",
   },
-  balanceContent: {
-    paddingVertical: 24,
-  },
+  balanceContent: { paddingVertical: 24 },
   balanceHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
   },
-  balanceLabel: {
-    fontSize: 14,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-  balanceTrend: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  positiveTrend: {
-    backgroundColor: "#D1FAE5",
-  },
-  negativeTrend: {
-    backgroundColor: "#FEE2E2",
-  },
-  trendText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  balanceLabel: { fontSize: 14, color: "#64748B", fontWeight: "500" },
+  balanceTrend: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  positiveTrend: { backgroundColor: "#D1FAE5" },
+  negativeTrend: { backgroundColor: "#FEE2E2" },
+  trendText: { fontSize: 12, fontWeight: "600" },
   balanceText: {
     fontSize: 36,
     fontWeight: "700",
@@ -891,160 +781,60 @@ const styles = StyleSheet.create({
     flex: 1,
     marginBottom: 8,
   },
-  indicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  incomeIndicator: {
-    backgroundColor: "#10B981",
-  },
-  expenseIndicator: {
-    backgroundColor: "#EF4444",
-  },
-  amountLabel: {
-    fontSize: 12,
-    color: "#64748B",
-    marginBottom: 2,
-  },
-  incomeAmount: {
-    color: "#10B981",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  expenseAmount: {
-    color: "#EF4444",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  netAmount: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  indicator: { width: 12, height: 12, borderRadius: 6, marginRight: 8 },
+  incomeIndicator: { backgroundColor: "#10B981" },
+  expenseIndicator: { backgroundColor: "#EF4444" },
+  amountLabel: { fontSize: 12, color: "#64748B", marginBottom: 2 },
+  incomeAmount: { color: "#10B981", fontSize: 14, fontWeight: "600" },
+  expenseAmount: { color: "#EF4444", fontSize: 14, fontWeight: "600" },
+  netAmount: { fontSize: 14, fontWeight: "600" },
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1E293B",
-  },
-  chartTypeSelector: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  chartTypeButton: {
-    borderRadius: 8,
-  },
-  chartContainer: {
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  pieChartContainer: {
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  chart: {
-    borderRadius: 16,
-    marginVertical: 8,
-  },
+  cardTitle: { fontSize: 18, fontWeight: "700", color: "#1E293B" },
+  chartContainer: { alignItems: "center", paddingVertical: 8 },
+  pieChartContainer: { alignItems: "center", paddingVertical: 8 },
+  chart: { borderRadius: 16, marginVertical: 8 },
   legendContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
     marginTop: 16,
     gap: 16,
   },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  legendText: {
-    fontSize: 12,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-  goalProgressContainer: {
-    marginBottom: 12,
-  },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendColor: { width: 12, height: 12, borderRadius: 6 },
+  legendText: { fontSize: 12, color: "#64748B", fontWeight: "500" },
+  goalProgressContainer: { marginBottom: 12 },
   progressHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
   },
-  goalProgressText: {
-    fontSize: 14,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-  goalPercentage: {
-    fontSize: 14,
-    color: "#6366F1",
-    fontWeight: "700",
-  },
+  goalProgressText: { fontSize: 14, color: "#64748B", fontWeight: "500" },
+  goalPercentage: { fontSize: 14, color: "#6366F1", fontWeight: "700" },
   progressBarBackground: {
     height: 8,
     backgroundColor: "#E2E8F0",
     borderRadius: 4,
     overflow: "hidden",
   },
-  progressBarFill: {
-    height: 8,
-    borderRadius: 4,
-  },
-  goalStatus: {
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  goalAchieved: {
-    color: "#10B981",
-  },
-  goalPending: {
-    color: "#6366F1",
-  },
-  noGoalContainer: {
-    alignItems: "center",
-    paddingVertical: 16,
-  },
-  noGoalText: {
-    color: "#64748B",
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  setGoalButton: {
-    borderColor: "#6366F1",
-  },
-  actionsContainer: {
-    flexDirection: "row",
-    gap: 12,
-  },
+  progressBarFill: { height: 8, borderRadius: 4 },
+  goalStatus: { fontSize: 14, fontWeight: "600", textAlign: "center" },
+  goalAchieved: { color: "#10B981" },
+  goalPending: { color: "#6366F1" },
+  noGoalContainer: { alignItems: "center", paddingVertical: 16 },
+  noGoalText: { color: "#64748B", marginBottom: 12, textAlign: "center" },
+  setGoalButton: { borderColor: "#6366F1" },
+  actionsContainer: { flexDirection: "row", gap: 12 },
   actionButton: {
     flex: 1,
     borderRadius: 12,
-  },
-  actionButtonContent: {
     height: 48,
-  },
-  actionButtonLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  outlinedButtonLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#6366F1",
+    justifyContent: "center",
   },
   transactionItem: {
     flexDirection: "row",
@@ -1054,17 +844,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-  lastTransactionItem: {
-    borderBottomWidth: 0,
-  },
-  transactionLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  transactionRight: {
-    alignItems: "flex-end",
-  },
+  lastTransactionItem: { borderBottomWidth: 0 },
+  transactionLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  transactionRight: { alignItems: "flex-end" },
   transactionIcon: {
     width: 40,
     height: 40,
@@ -1073,64 +855,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 12,
   },
-  incomeIcon: {
-    backgroundColor: "#D1FAE5",
-  },
-  expenseIcon: {
-    backgroundColor: "#FEE2E2",
-  },
-  transactionIconText: {
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  transactionInfo: {
-    flex: 1,
-  },
+  incomeIcon: { backgroundColor: "#D1FAE5" },
+  expenseIcon: { backgroundColor: "#FEE2E2" },
+  transactionIconText: { fontSize: 16, fontWeight: "bold" },
+  transactionInfo: { flex: 1 },
   transactionDescription: {
     fontSize: 16,
     color: "#1E293B",
     marginBottom: 2,
     fontWeight: "500",
   },
-  transactionCategory: {
-    fontSize: 12,
-    color: "#64748B",
-  },
-  transactionAmount: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  incomeText: {
-    color: "#10B981",
-  },
-  expenseText: {
-    color: "#EF4444",
-  },
-  transactionDate: {
-    fontSize: 12,
-    color: "#94A3B8",
-  },
-  noDataContainer: {
-    alignItems: "center",
-    paddingVertical: 32,
-  },
-  noDataText: {
-    fontSize: 16,
-    color: "#64748B",
-    marginBottom: 4,
-  },
-  noDataSubtext: {
-    fontSize: 14,
-    color: "#94A3B8",
-    textAlign: "center",
-  },
-  snackbar: {
-    borderRadius: 12,
-    margin: 16,
-  },
-  viewAllLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  transactionCategory: { fontSize: 12, color: "#64748B" },
+  transactionAmount: { fontSize: 16, fontWeight: "600", marginBottom: 2 },
+  incomeText: { color: "#10B981" },
+  expenseText: { color: "#EF4444" },
+  transactionDate: { fontSize: 12, color: "#94A3B8" },
+  noDataContainer: { alignItems: "center", paddingVertical: 32 },
+  noDataText: { fontSize: 16, color: "#64748B", marginBottom: 4 },
+  noDataSubtext: { fontSize: 14, color: "#94A3B8", textAlign: "center" },
+  snackbar: { borderRadius: 12, margin: 16 },
 });
