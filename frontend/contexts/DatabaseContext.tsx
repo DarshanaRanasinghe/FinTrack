@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext";
 import NetInfo from "@react-native-community/netinfo";
 import { isValidDateString } from "@/utils/dateUtils";
 
-const API_BASE_URL = "http://192.168.1.2:3000/api";
+const API_BASE_URL = "http://192.168.8.101:3000/api";
 
 interface DatabaseContextType {
   // Transactions
