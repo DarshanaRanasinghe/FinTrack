@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.config.database import get_connection
 from app.middleware.auth import authenticate_token
 from fastapi import Depends
@@ -7,10 +7,10 @@ from fastapi.responses import Response
 import json
 import io
 from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from reportlab.lib.units import inch
+import oracledb
 
 router = APIRouter()
 
@@ -24,33 +24,50 @@ async def get_monthly_expenditure_report(
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Call the stored procedure
-        result_cursor = cursor.var(oracledb.CURSOR)
-        cursor.callproc('get_monthly_expenditure_analysis', [user["id"], month, year, result_cursor])
+        # Use direct SQL query instead of stored procedure
+        cursor.execute("""
+            SELECT 
+                category,
+                COUNT(*) as transaction_count,
+                SUM(amount) as total_amount,
+                ROUND(AVG(amount), 2) as avg_amount,
+                ROUND((SUM(amount) / (SELECT NVL(SUM(amount), 1) FROM transactions 
+                     WHERE user_id = :user_id 
+                     AND EXTRACT(MONTH FROM transaction_date) = :month 
+                     AND EXTRACT(YEAR FROM transaction_date) = :year 
+                     AND type = 'expense')) * 100, 2) as percentage
+            FROM transactions 
+            WHERE user_id = :user_id 
+                AND type = 'expense'
+                AND EXTRACT(MONTH FROM transaction_date) = :month 
+                AND EXTRACT(YEAR FROM transaction_date) = :year 
+            GROUP BY category
+            ORDER BY total_amount DESC
+        """, user_id=user["id"], month=month, year=year)
         
-        result = result_cursor.getvalue()
-        rows = result.fetchall()
+        rows = cursor.fetchall()
         
         categories = []
         for row in rows:
             categories.append({
                 "category": row[0],
                 "transaction_count": row[1],
-                "total_amount": float(row[2]),
-                "avg_amount": float(row[3]),
-                "percentage": float(row[4])
+                "total_amount": float(row[2]) if row[2] else 0,
+                "avg_amount": float(row[3]) if row[3] else 0,
+                "percentage": float(row[4]) if row[4] else 0
             })
         
         # Get total expenses for the month
         cursor.execute("""
-            SELECT SUM(amount) FROM transactions 
+            SELECT NVL(SUM(amount), 0) FROM transactions 
             WHERE user_id = :user_id 
             AND type = 'expense'
             AND EXTRACT(MONTH FROM transaction_date) = :month 
             AND EXTRACT(YEAR FROM transaction_date) = :year
-        """, {"user_id": user["id"], "month": month, "year": year})
+        """, user_id=user["id"], month=month, year=year)
         
-        total_expenses = cursor.fetchone()[0] or 0
+        total_expenses_result = cursor.fetchone()
+        total_expenses = float(total_expenses_result[0]) if total_expenses_result else 0
         
         cursor.close()
         
@@ -64,13 +81,14 @@ async def get_monthly_expenditure_report(
                 },
                 "categories": categories,
                 "summary": {
-                    "total_expenses": float(total_expenses),
+                    "total_expenses": total_expenses,
                     "category_count": len(categories)
                 },
                 "generatedAt": datetime.now().isoformat()
             }
         }
     except Exception as e:
+        print(f"Error in monthly expenditure report: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate monthly expenditure report", "error": str(e)})
 
 @router.get("/report/goal-adherence")
@@ -82,12 +100,30 @@ async def get_goal_adherence_report(
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Call the stored procedure
-        result_cursor = cursor.var(oracledb.CURSOR)
-        cursor.callproc('get_goal_adherence_tracking', [user["id"], year, result_cursor])
+        # Use direct SQL query instead of stored procedure
+        cursor.execute("""
+            SELECT 
+                g.target_month,
+                g.target_year,
+                g.target_amount,
+                NVL(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) as actual_savings,
+                CASE 
+                    WHEN NVL(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) >= g.target_amount THEN 'ACHIEVED'
+                    WHEN NVL(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) >= g.target_amount * 0.7 THEN 'NEAR_TARGET'
+                    ELSE 'BELOW_TARGET'
+                END as status,
+                ROUND((NVL(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) / g.target_amount) * 100, 2) as achievement_rate
+            FROM goals g
+            LEFT JOIN transactions t ON g.user_id = t.user_id
+                AND EXTRACT(MONTH FROM t.transaction_date) = g.target_month
+                AND EXTRACT(YEAR FROM t.transaction_date) = g.target_year
+            WHERE g.user_id = :user_id 
+                AND g.target_year = :year
+            GROUP BY g.target_month, g.target_year, g.target_amount
+            ORDER BY g.target_month
+        """, user_id=user["id"], year=year)
         
-        result = result_cursor.getvalue()
-        rows = result.fetchall()
+        rows = cursor.fetchall()
         
         goals = []
         total_goals = len(rows)
@@ -97,10 +133,10 @@ async def get_goal_adherence_report(
             goal_data = {
                 "target_month": row[0],
                 "target_year": row[1],
-                "target_amount": float(row[2]),
-                "actual_savings": float(row[3]),
+                "target_amount": float(row[2]) if row[2] else 0,
+                "actual_savings": float(row[3]) if row[3] else 0,
                 "status": row[4],
-                "achievement_rate": float(row[5])
+                "achievement_rate": float(row[5]) if row[5] else 0
             }
             
             if row[4] == 'ACHIEVED':
@@ -126,6 +162,7 @@ async def get_goal_adherence_report(
             }
         }
     except Exception as e:
+        print(f"Error in goal adherence report: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate goal adherence report", "error": str(e)})
 
 @router.get("/report/savings-progress")
@@ -134,21 +171,41 @@ async def get_savings_progress_report(user: dict = Depends(authenticate_token)):
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Call the stored procedure
-        result_cursor = cursor.var(oracledb.CURSOR)
-        cursor.callproc('get_savings_goal_progress', [user["id"], result_cursor])
+        current_month = datetime.now().month
+        current_year = datetime.now().year
         
-        result = result_cursor.getvalue()
-        rows = result.fetchall()
+        # Use direct SQL query instead of stored procedure
+        cursor.execute("""
+            SELECT 
+                g.target_month,
+                g.target_year,
+                g.target_amount,
+                NVL(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) as current_savings,
+                ROUND((NVL(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) / g.target_amount) * 100, 2) as progress_percentage,
+                CASE 
+                    WHEN NVL(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) >= g.target_amount THEN 'ACHIEVED'
+                    ELSE 'IN_PROGRESS'
+                END as status
+            FROM goals g
+            LEFT JOIN transactions t ON g.user_id = t.user_id
+                AND EXTRACT(MONTH FROM t.transaction_date) = g.target_month
+                AND EXTRACT(YEAR FROM t.transaction_date) = g.target_year
+            WHERE g.user_id = :user_id 
+                AND g.target_month = :current_month
+                AND g.target_year = :current_year
+            GROUP BY g.target_month, g.target_year, g.target_amount
+        """, user_id=user["id"], current_month=current_month, current_year=current_year)
+        
+        rows = cursor.fetchall()
         
         current_goals = []
         for row in rows:
             current_goals.append({
                 "target_month": row[0],
                 "target_year": row[1],
-                "target_amount": float(row[2]),
-                "current_savings": float(row[3]),
-                "progress_percentage": float(row[4]),
+                "target_amount": float(row[2]) if row[2] else 0,
+                "current_savings": float(row[3]) if row[3] else 0,
+                "progress_percentage": float(row[4]) if row[4] else 0,
                 "status": row[5]
             })
         
@@ -159,13 +216,14 @@ async def get_savings_progress_report(user: dict = Depends(authenticate_token)):
             "data": {
                 "current_goals": current_goals,
                 "period": {
-                    "month": datetime.now().month,
-                    "year": datetime.now().year
+                    "month": current_month,
+                    "year": current_year
                 },
                 "generatedAt": datetime.now().isoformat()
             }
         }
     except Exception as e:
+        print(f"Error in savings progress report: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate savings progress report", "error": str(e)})
 
 @router.get("/report/category-distribution")
@@ -178,21 +236,37 @@ async def get_category_distribution_report(
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Call the stored procedure
-        result_cursor = cursor.var(oracledb.CURSOR)
-        cursor.callproc('get_category_expense_distribution', [user["id"], start_date, end_date, result_cursor])
+        # Use direct SQL query instead of stored procedure
+        cursor.execute("""
+            SELECT
+                category,
+                COUNT(*) as transaction_count,
+                SUM(amount) as total_amount,
+                ROUND(AVG(amount), 2) as avg_amount,
+                ROUND((SUM(amount) / (SELECT NVL(SUM(amount), 1) FROM transactions 
+                     WHERE user_id = :user_id 
+                     AND type = 'expense'
+                     AND transaction_date BETWEEN TO_DATE(:start_date, 'YYYY-MM-DD') 
+                     AND TO_DATE(:end_date, 'YYYY-MM-DD'))) * 100, 2) as percentage
+            FROM transactions 
+            WHERE user_id = :user_id 
+                AND type = 'expense'
+                AND transaction_date BETWEEN TO_DATE(:start_date, 'YYYY-MM-DD') 
+                AND TO_DATE(:end_date, 'YYYY-MM-DD')
+            GROUP BY category
+            ORDER BY total_amount DESC
+        """, user_id=user["id"], start_date=start_date, end_date=end_date)
         
-        result = result_cursor.getvalue()
-        rows = result.fetchall()
+        rows = cursor.fetchall()
         
         categories = []
         for row in rows:
             categories.append({
                 "category": row[0],
                 "transaction_count": row[1],
-                "total_amount": float(row[2]),
-                "avg_amount": float(row[3]),
-                "percentage": float(row[4])
+                "total_amount": float(row[2]) if row[2] else 0,
+                "avg_amount": float(row[3]) if row[3] else 0,
+                "percentage": float(row[4]) if row[4] else 0
             })
         
         cursor.close()
@@ -213,6 +287,7 @@ async def get_category_distribution_report(
             }
         }
     except Exception as e:
+        print(f"Error in category distribution report: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate category distribution report", "error": str(e)})
 
 @router.get("/report/financial-health")
@@ -221,21 +296,91 @@ async def get_financial_health_report(user: dict = Depends(authenticate_token)):
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Call the stored procedure
-        result_cursor = cursor.var(oracledb.CURSOR)
-        cursor.callproc('get_financial_health_status', [user["id"], result_cursor])
+        current_year = datetime.now().year
         
-        result = result_cursor.getvalue()
-        row = result.fetchone()
+        # Use direct SQL query instead of stored procedure
+        cursor.execute("""
+            SELECT 
+                NVL(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as total_income,
+                NVL(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
+                NVL(SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END), 0) as net_income,
+                CASE 
+                    WHEN NVL(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) > 0 THEN
+                        ROUND((NVL(SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END), 0) / 
+                              NVL(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 1)) * 100, 2)
+                    ELSE 0
+                END as savings_rate
+            FROM transactions 
+            WHERE user_id = :user_id 
+                AND EXTRACT(YEAR FROM transaction_date) = :current_year
+        """, user_id=user["id"], current_year=current_year)
+        
+        financial_data = cursor.fetchone()
+        
+        if financial_data:
+            total_income = float(financial_data[0]) if financial_data[0] else 0
+            total_expenses = float(financial_data[1]) if financial_data[1] else 0
+            net_income = float(financial_data[2]) if financial_data[2] else 0
+            savings_rate = float(financial_data[3]) if financial_data[3] else 0
+        else:
+            total_income = 0
+            total_expenses = 0
+            net_income = 0
+            savings_rate = 0
+        
+        # Get goals data
+        cursor.execute("""
+            SELECT COUNT(*) FROM goals WHERE user_id = :user_id AND target_year = :current_year
+        """, user_id=user["id"], current_year=current_year)
+        
+        total_goals_result = cursor.fetchone()
+        total_goals = total_goals_result[0] if total_goals_result else 0
+        
+        # Get achieved goals
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM goals g
+            WHERE g.user_id = :user_id 
+            AND g.target_year = :current_year
+            AND g.target_amount <= (
+                SELECT NVL(SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END), 0)
+                FROM transactions 
+                WHERE user_id = :user_id
+                AND EXTRACT(MONTH FROM transaction_date) = g.target_month
+                AND EXTRACT(YEAR FROM transaction_date) = g.target_year
+            )
+        """, user_id=user["id"], current_year=current_year)
+        
+        achieved_goals_result = cursor.fetchone()
+        achieved_goals = achieved_goals_result[0] if achieved_goals_result else 0
+        
+        goal_achievement_rate = (achieved_goals / total_goals * 100) if total_goals > 0 else 0
+        
+        # Calculate health score
+        health_score = min(
+            (min(savings_rate, 30) + 
+             (goal_achievement_rate * 0.4) + 
+             (20 if net_income > 0 else 0)), 
+            100
+        )
+        
+        if health_score >= 80:
+            health_status = "EXCELLENT"
+        elif health_score >= 60:
+            health_status = "GOOD"
+        elif health_score >= 40:
+            health_status = "FAIR"
+        else:
+            health_status = "POOR"
         
         health_data = {
-            "total_income": float(row[0]),
-            "total_expenses": float(row[1]),
-            "net_income": float(row[2]),
-            "savings_rate": float(row[3]),
-            "goal_achievement_rate": float(row[4]),
-            "health_score": float(row[5]),
-            "health_status": row[6]
+            "total_income": total_income,
+            "total_expenses": total_expenses,
+            "net_income": net_income,
+            "savings_rate": savings_rate,
+            "goal_achievement_rate": goal_achievement_rate,
+            "health_score": health_score,
+            "health_status": health_status
         }
         
         # Generate recommendations based on health score
@@ -248,11 +393,12 @@ async def get_financial_health_report(user: dict = Depends(authenticate_token)):
             "data": {
                 "health_metrics": health_data,
                 "recommendations": recommendations,
-                "period": {"year": datetime.now().year},
+                "period": {"year": current_year},
                 "generatedAt": datetime.now().isoformat()
             }
         }
     except Exception as e:
+        print(f"Error in financial health report: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate financial health report", "error": str(e)})
 
 def generate_health_recommendations(health_data):
@@ -283,8 +429,15 @@ async def generate_monthly_expenditure_pdf(
     user: dict = Depends(authenticate_token)
 ):
     try:
-        report_data = await get_monthly_expenditure_report(month, year, user)
-        pdf_buffer = generate_basic_pdf(report_data["data"], "Monthly Expenditure Report", user)
+        # Get the report data using the same endpoint
+        report_response = await get_monthly_expenditure_report(month, year, user)
+        if not report_response["success"]:
+            raise HTTPException(500, {"success": False, "message": "Failed to generate report data"})
+        
+        report_data = report_response["data"]
+        
+        # Generate PDF
+        pdf_buffer = generate_basic_pdf(report_data, "Monthly Expenditure Report", user)
         
         return Response(
             content=pdf_buffer.getvalue(),
@@ -294,13 +447,21 @@ async def generate_monthly_expenditure_pdf(
             }
         )
     except Exception as e:
+        print(f"Error generating PDF: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate PDF report", "error": str(e)})
 
 @router.get("/report/financial-health/pdf")
 async def generate_financial_health_pdf(user: dict = Depends(authenticate_token)):
     try:
-        report_data = await get_financial_health_report(user)
-        pdf_buffer = generate_basic_pdf(report_data["data"], "Financial Health Report", user)
+        # Get the report data using the same endpoint
+        report_response = await get_financial_health_report(user)
+        if not report_response["success"]:
+            raise HTTPException(500, {"success": False, "message": "Failed to generate report data"})
+        
+        report_data = report_response["data"]
+        
+        # Generate PDF
+        pdf_buffer = generate_basic_pdf(report_data, "Financial Health Report", user)
         
         return Response(
             content=pdf_buffer.getvalue(),
@@ -310,6 +471,7 @@ async def generate_financial_health_pdf(user: dict = Depends(authenticate_token)
             }
         )
     except Exception as e:
+        print(f"Error generating PDF: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate PDF report", "error": str(e)})
 
 def generate_basic_pdf(data, title, user):
