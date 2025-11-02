@@ -30,6 +30,7 @@ export default function RootLayout() {
         <DatabaseProvider>
           <Stack
             screenOptions={{
+              headerShown: false,
               headerStyle: {
                 backgroundColor: lightTheme.colors.primary,
               },
