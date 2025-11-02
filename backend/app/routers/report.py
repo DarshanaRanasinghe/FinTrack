@@ -24,7 +24,7 @@ async def get_monthly_expenditure_report(
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Use direct SQL query instead of stored procedure
+        # Use direct SQL query
         cursor.execute("""
             SELECT 
                 category,
@@ -100,7 +100,7 @@ async def get_goal_adherence_report(
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Use direct SQL query instead of stored procedure
+        # Use direct SQL query
         cursor.execute("""
             SELECT 
                 g.target_month,
@@ -174,7 +174,7 @@ async def get_savings_progress_report(user: dict = Depends(authenticate_token)):
         current_month = datetime.now().month
         current_year = datetime.now().year
         
-        # Use direct SQL query instead of stored procedure
+        # Use direct SQL query
         cursor.execute("""
             SELECT 
                 g.target_month,
@@ -236,7 +236,7 @@ async def get_category_distribution_report(
         conn = await get_connection()
         cursor = conn.cursor()
         
-        # Use direct SQL query instead of stored procedure
+        # Use direct SQL query
         cursor.execute("""
             SELECT
                 category,
@@ -298,7 +298,7 @@ async def get_financial_health_report(user: dict = Depends(authenticate_token)):
         
         current_year = datetime.now().year
         
-        # Use direct SQL query instead of stored procedure
+        # Use direct SQL query
         cursor.execute("""
             SELECT 
                 NVL(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as total_income,
@@ -421,7 +421,7 @@ def generate_health_recommendations(health_data):
     
     return recommendations
 
-# PDF Generation Endpoints
+# PDF Generation Endpoints for all 5 reports
 @router.get("/report/monthly-expenditure/pdf")
 async def generate_monthly_expenditure_pdf(
     month: int = Query(...), 
@@ -437,13 +437,92 @@ async def generate_monthly_expenditure_pdf(
         report_data = report_response["data"]
         
         # Generate PDF
-        pdf_buffer = generate_basic_pdf(report_data, "Monthly Expenditure Report", user)
+        pdf_buffer = generate_monthly_expenditure_pdf_content(report_data, user)
         
         return Response(
             content=pdf_buffer.getvalue(),
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f"attachment; filename=monthly_expenditure_{month}_{year}.pdf"
+            }
+        )
+    except Exception as e:
+        print(f"Error generating PDF: {str(e)}")
+        raise HTTPException(500, {"success": False, "message": "Failed to generate PDF report", "error": str(e)})
+
+@router.get("/report/goal-adherence/pdf")
+async def generate_goal_adherence_pdf(
+    year: int = Query(...), 
+    user: dict = Depends(authenticate_token)
+):
+    try:
+        # Get the report data using the same endpoint
+        report_response = await get_goal_adherence_report(year, user)
+        if not report_response["success"]:
+            raise HTTPException(500, {"success": False, "message": "Failed to generate report data"})
+        
+        report_data = report_response["data"]
+        
+        # Generate PDF
+        pdf_buffer = generate_goal_adherence_pdf_content(report_data, user)
+        
+        return Response(
+            content=pdf_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=goal_adherence_{year}.pdf"
+            }
+        )
+    except Exception as e:
+        print(f"Error generating PDF: {str(e)}")
+        raise HTTPException(500, {"success": False, "message": "Failed to generate PDF report", "error": str(e)})
+
+@router.get("/report/savings-progress/pdf")
+async def generate_savings_progress_pdf(user: dict = Depends(authenticate_token)):
+    try:
+        # Get the report data using the same endpoint
+        report_response = await get_savings_progress_report(user)
+        if not report_response["success"]:
+            raise HTTPException(500, {"success": False, "message": "Failed to generate report data"})
+        
+        report_data = report_response["data"]
+        
+        # Generate PDF
+        pdf_buffer = generate_savings_progress_pdf_content(report_data, user)
+        
+        return Response(
+            content=pdf_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=savings_progress_{datetime.now().month}_{datetime.now().year}.pdf"
+            }
+        )
+    except Exception as e:
+        print(f"Error generating PDF: {str(e)}")
+        raise HTTPException(500, {"success": False, "message": "Failed to generate PDF report", "error": str(e)})
+
+@router.get("/report/category-distribution/pdf")
+async def generate_category_distribution_pdf(
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    user: dict = Depends(authenticate_token)
+):
+    try:
+        # Get the report data using the same endpoint
+        report_response = await get_category_distribution_report(start_date, end_date, user)
+        if not report_response["success"]:
+            raise HTTPException(500, {"success": False, "message": "Failed to generate report data"})
+        
+        report_data = report_response["data"]
+        
+        # Generate PDF
+        pdf_buffer = generate_category_distribution_pdf_content(report_data, user)
+        
+        return Response(
+            content=pdf_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=category_distribution_{start_date}_to_{end_date}.pdf"
             }
         )
     except Exception as e:
@@ -461,7 +540,7 @@ async def generate_financial_health_pdf(user: dict = Depends(authenticate_token)
         report_data = report_response["data"]
         
         # Generate PDF
-        pdf_buffer = generate_basic_pdf(report_data, "Financial Health Report", user)
+        pdf_buffer = generate_financial_health_pdf_content(report_data, user)
         
         return Response(
             content=pdf_buffer.getvalue(),
@@ -474,7 +553,8 @@ async def generate_financial_health_pdf(user: dict = Depends(authenticate_token)
         print(f"Error generating PDF: {str(e)}")
         raise HTTPException(500, {"success": False, "message": "Failed to generate PDF report", "error": str(e)})
 
-def generate_basic_pdf(data, title, user):
+# PDF Generation Functions for each report type
+def generate_monthly_expenditure_pdf_content(data, user):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     styles = getSampleStyleSheet()
@@ -489,28 +569,43 @@ def generate_basic_pdf(data, title, user):
         alignment=1,
         textColor=colors.HexColor("#6366F1")
     )
-    title_para = Paragraph(title, title_style)
-    story.append(title_para)
+    title = Paragraph(f"Monthly Expenditure Report - {data['period']['monthName']} {data['period']['year']}", title_style)
+    story.append(title)
     
-    # Add basic content based on report type
-    if "health_metrics" in data:
-        # Financial Health Report
-        metrics = data["health_metrics"]
-        story.append(Paragraph("Financial Health Metrics", styles['Heading2']))
+    # Summary
+    story.append(Paragraph("Summary", styles['Heading2']))
+    summary_data = [
+        ['Total Expenses', f"${data['summary']['total_expenses']:.2f}"],
+        ['Categories', str(data['summary']['category_count'])],
+        ['Period', f"{data['period']['monthName']} {data['period']['year']}"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[200, 200])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Categories
+    if data['categories']:
+        story.append(Paragraph("Expense Categories", styles['Heading2']))
+        category_data = [['Category', 'Transactions', 'Total Amount', 'Percentage']]
+        for cat in data['categories']:
+            category_data.append([
+                cat['category'],
+                str(cat['transaction_count']),
+                f"${cat['total_amount']:.2f}",
+                f"{cat['percentage']:.1f}%"
+            ])
         
-        metrics_data = [
-            ['Metric', 'Value'],
-            ['Total Income', f"${metrics['total_income']:.2f}"],
-            ['Total Expenses', f"${metrics['total_expenses']:.2f}"],
-            ['Net Income', f"${metrics['net_income']:.2f}"],
-            ['Savings Rate', f"{metrics['savings_rate']:.1f}%"],
-            ['Goal Achievement Rate', f"{metrics['goal_achievement_rate']:.1f}%"],
-            ['Health Score', f"{metrics['health_score']:.1f}/100"],
-            ['Health Status', metrics['health_status']]
-        ]
-        
-        metrics_table = Table(metrics_data, colWidths=[200, 200])
-        metrics_table.setStyle(TableStyle([
+        category_table = Table(category_data, colWidths=[150, 100, 100, 100])
+        category_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -518,39 +613,267 @@ def generate_basic_pdf(data, title, user):
             ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
-        story.append(metrics_table)
-        story.append(Spacer(1, 20))
-        
-        # Recommendations
-        if data.get('recommendations'):
-            story.append(Paragraph("Recommendations", styles['Heading2']))
-            for rec in data['recommendations']:
-                story.append(Paragraph(f"• {rec}", styles['Normal']))
+        story.append(category_table)
     
-    elif "categories" in data:
-        # Monthly Expenditure Report
-        story.append(Paragraph(f"Expenditure for {data['period']['monthName']} {data['period']['year']}", styles['Heading2']))
+    # Footer
+    story.append(Spacer(1, 20))
+    generated_at = datetime.fromisoformat(data['generatedAt']).strftime("%B %d, %Y at %H:%M")
+    footer = Paragraph(f"Generated on {generated_at} for {user['name']}", styles['Normal'])
+    story.append(footer)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+def generate_goal_adherence_pdf_content(data, user):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=30,
+        alignment=1,
+        textColor=colors.HexColor("#6366F1")
+    )
+    title = Paragraph(f"Goal Adherence Report - {data['period']['year']}", title_style)
+    story.append(title)
+    
+    # Summary
+    story.append(Paragraph("Summary", styles['Heading2']))
+    summary_data = [
+        ['Total Goals', str(data['summary']['total_goals'])],
+        ['Achieved Goals', str(data['summary']['achieved_goals'])],
+        ['Achievement Rate', f"{data['summary']['achievement_rate']:.1f}%"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[200, 200])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Goals
+    if data['goals']:
+        story.append(Paragraph("Goal Details", styles['Heading2']))
+        goal_data = [['Month', 'Target Amount', 'Actual Savings', 'Status', 'Achievement']]
+        for goal in data['goals']:
+            month_name = datetime(2000, goal['target_month'], 1).strftime("%B")
+            goal_data.append([
+                f"{month_name} {goal['target_year']}",
+                f"${goal['target_amount']:.2f}",
+                f"${goal['actual_savings']:.2f}",
+                goal['status'].replace('_', ' ').title(),
+                f"{goal['achievement_rate']:.1f}%"
+            ])
         
-        if data['categories']:
-            category_data = [['Category', 'Transactions', 'Total Amount', 'Percentage']]
-            for cat in data['categories']:
-                category_data.append([
-                    cat['category'],
-                    str(cat['transaction_count']),
-                    f"${cat['total_amount']:.2f}",
-                    f"{cat['percentage']:.1f}%"
-                ])
+        goal_table = Table(goal_data, colWidths=[120, 100, 100, 100, 80])
+        goal_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(goal_table)
+    
+    # Footer
+    story.append(Spacer(1, 20))
+    generated_at = datetime.fromisoformat(data['generatedAt']).strftime("%B %d, %Y at %H:%M")
+    footer = Paragraph(f"Generated on {generated_at} for {user['name']}", styles['Normal'])
+    story.append(footer)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+def generate_savings_progress_pdf_content(data, user):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=30,
+        alignment=1,
+        textColor=colors.HexColor("#6366F1")
+    )
+    title = Paragraph(f"Savings Progress Report - {data['period']['monthName']} {data['period']['year']}", title_style)
+    story.append(title)
+    
+    # Current Goals
+    if data['current_goals']:
+        story.append(Paragraph("Current Savings Goals", styles['Heading2']))
+        for goal in data['current_goals']:
+            goal_data = [
+                ['Target Amount', f"${goal['target_amount']:.2f}"],
+                ['Current Savings', f"${goal['current_savings']:.2f}"],
+                ['Progress', f"{goal['progress_percentage']:.1f}%"],
+                ['Status', goal['status'].replace('_', ' ').title()]
+            ]
             
-            category_table = Table(category_data, colWidths=[150, 100, 100, 100])
-            category_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
+            goal_table = Table(goal_data, colWidths=[150, 150])
+            goal_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#10B981")),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
-            story.append(category_table)
+            story.append(goal_table)
+            story.append(Spacer(1, 10))
+    else:
+        story.append(Paragraph("No active savings goals for the current month", styles['Normal']))
+    
+    # Footer
+    story.append(Spacer(1, 20))
+    generated_at = datetime.fromisoformat(data['generatedAt']).strftime("%B %d, %Y at %H:%M")
+    footer = Paragraph(f"Generated on {generated_at} for {user['name']}", styles['Normal'])
+    story.append(footer)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+def generate_category_distribution_pdf_content(data, user):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=30,
+        alignment=1,
+        textColor=colors.HexColor("#6366F1")
+    )
+    title = Paragraph("Category Distribution Report", title_style)
+    story.append(title)
+    
+    # Period
+    story.append(Paragraph(f"Period: {data['period']['start_date']} to {data['period']['end_date']}", styles['Heading2']))
+    
+    # Summary
+    story.append(Paragraph("Summary", styles['Heading3']))
+    summary_data = [
+        ['Total Expenses', f"${data['summary']['total_expenses']:.2f}"],
+        ['Categories', str(data['summary']['total_categories'])]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[200, 200])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Categories
+    if data['categories']:
+        story.append(Paragraph("Expense Categories", styles['Heading2']))
+        category_data = [['Category', 'Transactions', 'Total Amount', 'Percentage']]
+        for cat in data['categories']:
+            category_data.append([
+                cat['category'],
+                str(cat['transaction_count']),
+                f"${cat['total_amount']:.2f}",
+                f"{cat['percentage']:.1f}%"
+            ])
+        
+        category_table = Table(category_data, colWidths=[150, 100, 100, 100])
+        category_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(category_table)
+    
+    # Footer
+    story.append(Spacer(1, 20))
+    generated_at = datetime.fromisoformat(data['generatedAt']).strftime("%B %d, %Y at %H:%M")
+    footer = Paragraph(f"Generated on {generated_at} for {user['name']}", styles['Normal'])
+    story.append(footer)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+def generate_financial_health_pdf_content(data, user):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=30,
+        alignment=1,
+        textColor=colors.HexColor("#6366F1")
+    )
+    title = Paragraph(f"Financial Health Report - {data['period']['year']}", title_style)
+    story.append(title)
+    
+    # Health Metrics
+    story.append(Paragraph("Financial Health Metrics", styles['Heading2']))
+    metrics = data['health_metrics']
+    
+    metrics_data = [
+        ['Metric', 'Value'],
+        ['Total Income', f"${metrics['total_income']:.2f}"],
+        ['Total Expenses', f"${metrics['total_expenses']:.2f}"],
+        ['Net Income', f"${metrics['net_income']:.2f}"],
+        ['Savings Rate', f"{metrics['savings_rate']:.1f}%"],
+        ['Goal Achievement Rate', f"{metrics['goal_achievement_rate']:.1f}%"],
+        ['Health Score', f"{metrics['health_score']:.1f}/100"],
+        ['Health Status', metrics['health_status']]
+    ]
+    
+    metrics_table = Table(metrics_data, colWidths=[200, 200])
+    metrics_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6366F1")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(metrics_table)
+    story.append(Spacer(1, 20))
+    
+    # Recommendations
+    if data.get('recommendations'):
+        story.append(Paragraph("Recommendations", styles['Heading2']))
+        for rec in data['recommendations']:
+            story.append(Paragraph(f"• {rec}", styles['Normal']))
     
     # Footer
     story.append(Spacer(1, 20))

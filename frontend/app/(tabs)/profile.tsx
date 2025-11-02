@@ -14,7 +14,7 @@ import {
 import { useAuth } from "../../contexts/AuthContext";
 import { useDatabase } from "../../contexts/DatabaseContext";
 import { format, parseISO } from "date-fns";
-import * as FileSystem from 'expo-file-system';
+import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
 const API_BASE_URL = "http://192.168.8.101:3000/api"; // Update with your actual IP
@@ -25,9 +25,9 @@ export default function ProfileScreen() {
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState("");
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
+  const [sharingPdf, setSharingPdf] = useState<string | null>(null);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [currentReport, setCurrentReport] = useState<any>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
 
   const handleSync = async () => {
     try {
@@ -121,7 +121,7 @@ export default function ProfileScreen() {
       
       setCurrentReport(result.data);
       setReportModalVisible(true);
-      setSnackbarMessage(`${reportType.replace('-', ' ')} report generated successfully!`);
+      setSnackbarMessage(`${getReportDisplayName(reportType)} report generated successfully!`);
       setSnackbarVisible(true);
       
     } catch (error: any) {
@@ -133,9 +133,157 @@ export default function ProfileScreen() {
     }
   };
 
-  const downloadAndSharePDF = async (reportType: string) => {
+  const generatePdfHtml = (reportData: any, reportType: string) => {
+    const reportName = getReportDisplayName(reportType);
+    const currentDate = new Date().toLocaleDateString();
+    
+    if (reportData.health_metrics) {
+      return `
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+              .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #6366F1; padding-bottom: 10px; }
+              .title { font-size: 24px; font-weight: bold; color: #1F2937; margin-bottom: 5px; }
+              .subtitle { font-size: 14px; color: #6B7280; }
+              .metrics-grid { display: flex; justify-content: space-between; margin-bottom: 20px; }
+              .metric-card { flex: 1; margin: 0 10px; padding: 15px; border: 1px solid #E5E7EB; border-radius: 8px; text-align: center; }
+              .metric-value { font-size: 24px; font-weight: bold; color: #6366F1; }
+              .metric-label { font-size: 12px; color: #6B7280; margin-top: 5px; }
+              .health-status { text-align: center; padding: 10px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; }
+              .excellent { background-color: #D1FAE5; color: #065F46; }
+              .good { background-color: #DBEAFE; color: #1E40AF; }
+              .fair { background-color: #FEF3C7; color: #92400E; }
+              .poor { background-color: #FEE2E2; color: #991B1B; }
+              .additional-metrics { background-color: #F8FAFC; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+              .metric-item { margin-bottom: 8px; display: flex; justify-content: space-between; }
+              .metric-item .label { font-weight: 600; }
+              .positive { color: #10B981; }
+              .negative { color: #EF4444; }
+              .recommendations { background-color: #F8FAFC; padding: 15px; border-radius: 8px; margin-top: 20px; }
+              .recommendations-title { font-weight: bold; margin-bottom: 10px; }
+              .recommendation { margin-bottom: 5px; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="title">${reportName} Report</div>
+              <div class="subtitle">Generated on ${currentDate}</div>
+            </div>
+            
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <div class="metric-value">${reportData.health_metrics.health_score?.toFixed(1) || 0}/100</div>
+                <div class="metric-label">Health Score</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value">${reportData.health_metrics.savings_rate?.toFixed(1) || 0}%</div>
+                <div class="metric-label">Savings Rate</div>
+              </div>
+            </div>
+            
+            <div class="health-status ${reportData.health_metrics.health_status?.toLowerCase() || 'poor'}">
+              Status: ${reportData.health_metrics.health_status || 'POOR'}
+            </div>
+            
+            <div class="additional-metrics">
+              <div class="metric-item">
+                <span class="label">Total Income:</span>
+                <span>$${(reportData.health_metrics.total_income || 0).toFixed(2)}</span>
+              </div>
+              <div class="metric-item">
+                <span class="label">Total Expenses:</span>
+                <span>$${(reportData.health_metrics.total_expenses || 0).toFixed(2)}</span>
+              </div>
+              <div class="metric-item">
+                <span class="label">Net Income:</span>
+                <span class="${(reportData.health_metrics.net_income || 0) >= 0 ? 'positive' : 'negative'}">
+                  $${(reportData.health_metrics.net_income || 0).toFixed(2)}
+                </span>
+              </div>
+              <div class="metric-item">
+                <span class="label">Goal Achievement:</span>
+                <span>${(reportData.health_metrics.goal_achievement_rate || 0).toFixed(1)}%</span>
+              </div>
+            </div>
+
+            ${reportData.recommendations ? `
+              <div class="recommendations">
+                <div class="recommendations-title">Recommendations:</div>
+                ${reportData.recommendations.map((rec: string) => `<div class="recommendation">• ${rec}</div>`).join('')}
+              </div>
+            ` : ''}
+          </body>
+        </html>
+      `;
+    }
+
+    if (reportData.categories) {
+      return `
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+              .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #6366F1; padding-bottom: 10px; }
+              .title { font-size: 24px; font-weight: bold; color: #1F2937; margin-bottom: 5px; }
+              .subtitle { font-size: 14px; color: #6B7280; }
+              .summary { background-color: #F8FAFC; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
+              .category-item { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #E5E7EB; }
+              .category-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+              .category-name { font-weight: bold; }
+              .category-amount { color: #EF4444; font-weight: bold; }
+              .category-details { display: flex; justify-content: space-between; font-size: 12px; color: #6B7280; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="title">${reportName} Report</div>
+              <div class="subtitle">Generated on ${currentDate}</div>
+            </div>
+            
+            <div class="summary">
+              <strong>Period:</strong> ${reportData.period?.monthName} ${reportData.period?.year}<br>
+              <strong>Total Expenses:</strong> $${(reportData.summary?.total_expenses || 0).toFixed(2)}
+            </div>
+            
+            ${reportData.categories.map((category: any) => `
+              <div class="category-item">
+                <div class="category-header">
+                  <span class="category-name">${category.category}</span>
+                  <span class="category-amount">$${(category.total_amount || 0).toFixed(2)}</span>
+                </div>
+                <div class="category-details">
+                  <span>${category.transaction_count || 0} transactions</span>
+                  <span>${(category.percentage || 0).toFixed(1)}% of total</span>
+                </div>
+              </div>
+            `).join('')}
+          </body>
+        </html>
+      `;
+    }
+
+    // Add similar HTML templates for other report types...
+
+    return `
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; color: #333; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <h1>${reportName} Report</h1>
+          <p>Generated on ${currentDate}</p>
+          <p>Report data is available in the app view.</p>
+        </body>
+      </html>
+    `;
+  };
+
+  const sharePdf = async (reportType: string) => {
     if (!isOnline) {
-      setSnackbarMessage("You need to be online to download PDF");
+      setSnackbarMessage("You need to be online to share PDF reports");
       setSnackbarVisible(true);
       return;
     }
@@ -146,41 +294,106 @@ export default function ProfileScreen() {
       return;
     }
 
-    setDownloadingPdf(reportType);
+    setSharingPdf(reportType);
     try {
+      // First, get the report data
       let url = '';
       const currentDate = new Date();
       
       switch (reportType) {
         case 'monthly-expenditure':
-          url = `${API_BASE_URL}/report/monthly-expenditure/pdf?month=${currentDate.getMonth() + 1}&year=${currentDate.getFullYear()}`;
+          url = `${API_BASE_URL}/report/monthly-expenditure?month=${currentDate.getMonth() + 1}&year=${currentDate.getFullYear()}`;
+          break;
+        case 'goal-adherence':
+          url = `${API_BASE_URL}/report/goal-adherence?year=${currentDate.getFullYear()}`;
+          break;
+        case 'savings-progress':
+          url = `${API_BASE_URL}/report/savings-progress`;
+          break;
+        case 'category-distribution':
+          const startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+          const endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+          url = `${API_BASE_URL}/report/category-distribution?start_date=${format(startDate, 'yyyy-MM-dd')}&end_date=${format(endDate, 'yyyy-MM-dd')}`;
           break;
         case 'financial-health':
-          url = `${API_BASE_URL}/report/financial-health/pdf`;
+          url = `${API_BASE_URL}/report/financial-health`;
           break;
         default:
-          throw new Error('PDF not available for this report type');
+          throw new Error('Invalid report type');
       }
 
-      console.log('Downloading PDF from:', url);
+      console.log('Fetching report data for PDF from:', url);
 
-      // Use a simpler approach - open the PDF URL directly
-      // This will trigger the browser download
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-        setSnackbarMessage("PDF download started in your browser!");
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server returned ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to generate report');
+      }
+
+      // Generate PDF from HTML using expo-print
+      const html = generatePdfHtml(result.data, reportType);
+      
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false
+      });
+
+      console.log('PDF generated at:', uri);
+      
+      // Share the PDF using expo-sharing
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Share ${getReportDisplayName(reportType)} Report`,
+          UTI: 'com.adobe.pdf'
+        });
+        setSnackbarMessage(`${getReportDisplayName(reportType)} PDF shared successfully!`);
       } else {
-        throw new Error('Cannot open PDF URL');
+        setSnackbarMessage("Sharing not available on this device");
       }
+      setSnackbarVisible(true);
       
     } catch (error: any) {
-      console.error('PDF download error:', error);
-      setSnackbarMessage(error.message || "Failed to download PDF");
+      console.error('PDF sharing error:', error);
+      setSnackbarMessage(error.message || "Failed to share PDF");
       setSnackbarVisible(true);
     } finally {
-      setDownloadingPdf(null);
+      setSharingPdf(null);
     }
+  };
+
+  const getReportDisplayName = (reportType: string) => {
+    const names: { [key: string]: string } = {
+      'monthly-expenditure': 'Monthly Expenditure',
+      'goal-adherence': 'Goal Adherence',
+      'savings-progress': 'Savings Progress',
+      'category-distribution': 'Category Distribution',
+      'financial-health': 'Financial Health'
+    };
+    return names[reportType] || reportType;
+  };
+
+  const getReportIcon = (reportType: string) => {
+    const icons: { [key: string]: string } = {
+      'monthly-expenditure': 'chart-bar',
+      'goal-adherence': 'flag-checkered',
+      'savings-progress': 'trending-up',
+      'category-distribution': 'tag-multiple',
+      'financial-health': 'heart-pulse'
+    };
+    return icons[reportType] || 'file-document';
   };
 
   const renderReportContent = () => {
@@ -374,6 +587,32 @@ export default function ProfileScreen() {
     );
   };
 
+  const ReportButtonPair = ({ reportType }: { reportType: string }) => (
+    <View style={styles.reportButtonPair}>
+      <Button
+        mode="outlined"
+        onPress={() => generateReport(reportType)}
+        style={styles.viewReportButton}
+        icon={getReportIcon(reportType)}
+        loading={generatingReport === reportType}
+        disabled={!!generatingReport}
+      >
+        View
+      </Button>
+      <Button
+        mode="contained"
+        onPress={() => sharePdf(reportType)}
+        style={styles.sharePdfButton}
+        icon="share"
+        loading={sharingPdf === reportType}
+        disabled={!!sharingPdf}
+        buttonColor="#06B6D4"
+      >
+        Share PDF
+      </Button>
+    </View>
+  );
+
   return (
     <ScrollView style={styles.container}>
       {/* User Info Card */}
@@ -403,99 +642,65 @@ export default function ProfileScreen() {
         </Card.Content>
       </Card>
 
-      {/* Report Generation */}
+      {/* Financial Reports */}
       <Card style={styles.card}>
         <Card.Content>
           <Title style={styles.cardTitle}>Financial Reports</Title>
           <Text style={styles.sectionDescription}>
-            Generate detailed financial reports to track your progress.
+            Generate and share detailed financial reports. View them in the app or share as PDF files.
           </Text>
           
-          <Button
-            mode="outlined"
-            onPress={() => generateReport('monthly-expenditure')}
-            style={styles.reportButton}
-            icon="chart-bar"
-            loading={generatingReport === 'monthly-expenditure'}
-            disabled={!!generatingReport}
-          >
-            Monthly Expenditure
-          </Button>
-          
-          <Button
-            mode="outlined"
-            onPress={() => generateReport('goal-adherence')}
-            style={styles.reportButton}
-            icon="flag-checkered"
-            loading={generatingReport === 'goal-adherence'}
-            disabled={!!generatingReport}
-          >
-            Goal Adherence
-          </Button>
-          
-          <Button
-            mode="outlined"
-            onPress={() => generateReport('savings-progress')}
-            style={styles.reportButton}
-            icon="trending-up"
-            loading={generatingReport === 'savings-progress'}
-            disabled={!!generatingReport}
-          >
-            Savings Progress
-          </Button>
-          
-          <Button
-            mode="outlined"
-            onPress={() => generateReport('category-distribution')}
-            style={styles.reportButton}
-            icon="tag-multiple"
-            loading={generatingReport === 'category-distribution'}
-            disabled={!!generatingReport}
-          >
-            Category Distribution
-          </Button>
-          
-          <Button
-            mode="contained"
-            onPress={() => generateReport('financial-health')}
-            style={styles.reportButton}
-            icon="heart-pulse"
-            loading={generatingReport === 'financial-health'}
-            disabled={!!generatingReport}
-          >
-            Financial Health
-          </Button>
+          {/* Monthly Expenditure Report */}
+          <View style={styles.reportSection}>
+            <Text style={styles.reportSectionTitle}>📊 Monthly Expenditure</Text>
+            <Text style={styles.reportSectionDescription}>
+              Detailed breakdown of your monthly spending by category
+            </Text>
+            <ReportButtonPair reportType="monthly-expenditure" />
+          </View>
 
-          <Divider style={styles.divider} />
+          <Divider style={styles.reportDivider} />
 
-          <Title style={styles.cardTitle}>Export Reports</Title>
-          <Text style={styles.sectionDescription}>
-            Download PDF versions of your reports.
-          </Text>
+          {/* Goal Adherence Report */}
+          <View style={styles.reportSection}>
+            <Text style={styles.reportSectionTitle}>🎯 Goal Adherence</Text>
+            <Text style={styles.reportSectionDescription}>
+              Track your progress towards financial goals
+            </Text>
+            <ReportButtonPair reportType="goal-adherence" />
+          </View>
 
-          <View style={styles.pdfButtons}>
-            <Button
-              mode="contained"
-              onPress={() => downloadAndSharePDF('monthly-expenditure')}
-              style={styles.pdfButton}
-              icon="file-pdf-box"
-              loading={downloadingPdf === 'monthly-expenditure'}
-              disabled={!!downloadingPdf}
-              buttonColor="#EF4444"
-            >
-              Export Monthly PDF
-            </Button>
-            <Button
-              mode="contained"
-              onPress={() => downloadAndSharePDF('financial-health')}
-              style={styles.pdfButton}
-              icon="file-pdf-box"
-              loading={downloadingPdf === 'financial-health'}
-              disabled={!!downloadingPdf}
-              buttonColor="#EF4444"
-            >
-              Export Health PDF
-            </Button>
+          <Divider style={styles.reportDivider} />
+
+          {/* Savings Progress Report */}
+          <View style={styles.reportSection}>
+            <Text style={styles.reportSectionTitle}>💰 Savings Progress</Text>
+            <Text style={styles.reportSectionDescription}>
+              Monitor your savings growth and target achievement
+            </Text>
+            <ReportButtonPair reportType="savings-progress" />
+          </View>
+
+          <Divider style={styles.reportDivider} />
+
+          {/* Category Distribution Report */}
+          <View style={styles.reportSection}>
+            <Text style={styles.reportSectionTitle}>📈 Category Distribution</Text>
+            <Text style={styles.reportSectionDescription}>
+              Analyze spending patterns across different categories
+            </Text>
+            <ReportButtonPair reportType="category-distribution" />
+          </View>
+
+          <Divider style={styles.reportDivider} />
+
+          {/* Financial Health Report */}
+          <View style={styles.reportSection}>
+            <Text style={styles.reportSectionTitle}>❤️ Financial Health</Text>
+            <Text style={styles.reportSectionDescription}>
+              Comprehensive assessment of your financial well-being
+            </Text>
+            <ReportButtonPair reportType="financial-health" />
           </View>
         </Card.Content>
       </Card>
@@ -701,19 +906,35 @@ const styles = StyleSheet.create({
   sectionDescription: {
     fontSize: 14,
     color: "#6B7280",
-    marginBottom: 16,
+    marginBottom: 20,
     lineHeight: 20,
   },
-  reportButton: {
-    marginBottom: 8,
+  reportSection: {
+    marginBottom: 20,
   },
-  pdfButtons: {
+  reportSectionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#1F2937",
+    marginBottom: 4,
+  },
+  reportSectionDescription: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 12,
+    lineHeight: 16,
+  },
+  reportButtonPair: {
+    flexDirection: "row",
     gap: 12,
   },
-  pdfButton: {
-    marginBottom: 8,
+  viewReportButton: {
+    flex: 1,
   },
-  divider: {
+  sharePdfButton: {
+    flex: 1,
+  },
+  reportDivider: {
     marginVertical: 16,
   },
   modalContainer: {
