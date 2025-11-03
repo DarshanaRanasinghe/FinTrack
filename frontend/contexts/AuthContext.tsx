@@ -3,7 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import axios from "axios";
 import { router } from "expo-router";
 
-const API_BASE_URL = "http://192.168.8.101:3000/api";
+const API_BASE_URL = "http://192.168.8.102:3000/api";
 
 interface User {
   id: number;

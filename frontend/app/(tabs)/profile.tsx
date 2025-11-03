@@ -17,7 +17,7 @@ import { format, parseISO } from "date-fns";
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 
-const API_BASE_URL = "http://192.168.8.101:3000/api"; // Update with your actual IP
+const API_BASE_URL = "http://192.168.8.102:3000/api"; // Update with your actual IP
 
 export default function ProfileScreen() {
   const { user, logout, token } = useAuth();

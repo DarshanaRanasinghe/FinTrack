@@ -10,10 +10,10 @@ class Goal:
             target_amount = goal_data['target_amount']
             target_month = goal_data['target_month']
             target_year = goal_data['target_year']
-            
+           
             cursor.execute("SELECT goals_seq.NEXTVAL AS id FROM DUAL")
             next_id = cursor.fetchone()[0]
-            
+           
             cursor.execute("""
                 INSERT INTO goals (id, user_id, target_amount, target_month, target_year)
                 VALUES (:id, :user_id, :target_amount, :target_month, :target_year)
@@ -26,6 +26,18 @@ class Goal:
             })
             conn.commit()
             return next_id
+        finally:
+            cursor.close()
+
+    @staticmethod
+    async def exists(id_, user_id):
+        conn = await get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT 1 FROM goals WHERE id = :id AND user_id = :user_id
+            """, {"id": id_, "user_id": user_id})
+            return cursor.fetchone() is not None
         finally:
             cursor.close()
 
@@ -84,7 +96,7 @@ class Goal:
             target_amount = goal_data['target_amount']
             target_month = goal_data['target_month']
             target_year = goal_data['target_year']
-            
+           
             cursor.execute("""
                 UPDATE goals
                 SET target_amount = :target_amount, target_month = :target_month, target_year = :target_year

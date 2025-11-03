@@ -13,10 +13,10 @@ class Transaction:
             category = transaction_data['category']
             user_id = transaction_data['user_id']
             transaction_date = transaction_data['date']
-           
+          
             cursor.execute("SELECT transactions_seq.NEXTVAL AS id FROM DUAL")
             next_id = cursor.fetchone()[0]
-           
+          
             cursor.execute("""
                 INSERT INTO transactions (id, amount, description, type, category, user_id, transaction_date)
                 VALUES (:id, :amount, :description, :type, :category, :user_id, TO_DATE(:transaction_date, 'YYYY-MM-DD'))
@@ -33,31 +33,7 @@ class Transaction:
             return next_id
         finally:
             cursor.close()
-    @staticmethod
-    async def get_all(user_id):
-        conn = await get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT id, amount, description, type, category,
-                       TO_CHAR(date_created, 'YYYY-MM-DD"T"HH24:MI:SS.FF3') as date_created,
-                       TO_CHAR(transaction_date, 'YYYY-MM-DD') as transaction_date
-                FROM transactions
-                WHERE user_id = :user_id
-                ORDER BY transaction_date DESC, date_created DESC
-            """, {"user_id": user_id})
-            rows = cursor.fetchall()
-            return [{
-                "id": row[0],
-                "amount": float(row[1]),
-                "desc": row[2],
-                "type": row[3],
-                "category": row[4],
-                "date": row[6],
-                "date_created": row[5]
-            } for row in rows]
-        finally:
-            cursor.close()
+
     @staticmethod
     async def get_by_id(id_, user_id):
         conn = await get_connection()
@@ -84,6 +60,46 @@ class Transaction:
             }
         finally:
             cursor.close()
+
+    # Add this method to check if transaction exists by ID
+    @staticmethod
+    async def exists(id_, user_id):
+        conn = await get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT 1 FROM transactions WHERE id = :id AND user_id = :user_id
+            """, {"id": id_, "user_id": user_id})
+            return cursor.fetchone() is not None
+        finally:
+            cursor.close()
+
+    @staticmethod
+    async def get_all(user_id):
+        conn = await get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, amount, description, type, category,
+                       TO_CHAR(date_created, 'YYYY-MM-DD"T"HH24:MI:SS.FF3') as date_created,
+                       TO_CHAR(transaction_date, 'YYYY-MM-DD') as transaction_date
+                FROM transactions
+                WHERE user_id = :user_id
+                ORDER BY transaction_date DESC, date_created DESC
+            """, {"user_id": user_id})
+            rows = cursor.fetchall()
+            return [{
+                "id": row[0],
+                "amount": float(row[1]),
+                "desc": row[2],
+                "type": row[3],
+                "category": row[4],
+                "date": row[6],
+                "date_created": row[5]
+            } for row in rows]
+        finally:
+            cursor.close()
+
     @staticmethod
     async def get_by_month(user_id, month, year):
         conn = await get_connection()
@@ -111,6 +127,7 @@ class Transaction:
             } for row in rows]
         finally:
             cursor.close()
+
     @staticmethod
     async def delete(id_, user_id):
         conn = await get_connection()
@@ -123,6 +140,7 @@ class Transaction:
             return cursor.rowcount > 0
         finally:
             cursor.close()
+
     @staticmethod
     async def update(id_, transaction_data, user_id):
         conn = await get_connection()
@@ -133,7 +151,7 @@ class Transaction:
             type_ = transaction_data['type']
             category = transaction_data['category']
             transaction_date = transaction_data['date']
-           
+          
             cursor.execute("""
                 UPDATE transactions
                 SET amount = :amount, description = :description, type = :type, category = :category,
